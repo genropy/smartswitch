@@ -1,4 +1,4 @@
-from .core import SwitchBook
+from .core import Switcher
 
-__all__ = ["SwitchBook"]
+__all__ = ["Switcher"]
 __version__ = "0.1.0"
