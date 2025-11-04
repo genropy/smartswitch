@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/logo.png" alt="SmartSwitch Logo" width="200"/>
+</div>
+
 # SmartSwitch
 
 **Intelligent rule-based function dispatch for Python**

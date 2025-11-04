@@ -1,6 +1,10 @@
-# smartswitch 🧠
+<div align="center">
+  <img src="docs/assets/logo.png" alt="SmartSwitch Logo" width="200"/>
 
-**Intelligent rule-based function dispatch for Python.**
+  # SmartSwitch 🧠
+
+  **Intelligent rule-based function dispatch for Python**
+</div>
 
 `smartswitch` lets you register functions that are called automatically based on argument types and runtime values — no more chains of `if` or `match`.
 
