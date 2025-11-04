@@ -18,15 +18,7 @@
   [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 </div>
 
-`smartswitch` lets you register functions that are called automatically based on argument types and runtime values — no more chains of `if` or `match`.
-
-## Features
-
-- 🎯 **Type + Value dispatch**: Combine type checking with runtime conditions
-- 📦 **Registry pattern**: Lookup handlers by name
-- 🧩 **Modular**: Each handler is a separate, testable function
-- ✨ **Clean API**: Pythonic decorators
-- 🚀 **Efficient**: Optimized implementation for real-world use
+Replace messy if-elif chains and duplicated logic with clean, maintainable function registries.
 
 ## Installation
 
@@ -34,134 +26,244 @@
 pip install smartswitch
 ```
 
-## Quick Start
+## The Problem-Solution Approach
 
+SmartSwitch helps you organize code that needs to handle different cases. Let's see how, step by step.
+
+### 1. Function Registry Pattern
+
+**Problem**: You have several operations and want to call them by name.
+
+**Traditional approach** - Dictionary of functions:
+```python
+# Hard to maintain, easy to make mistakes
+operations = {
+    'save': save_data,
+    'load': load_data,
+    'delete': delete_data
+}
+
+# Calling
+op = operations.get(action)
+if op:
+    op(data)
+```
+
+**With SmartSwitch** - Clean registration:
 ```python
 from smartswitch import Switcher
 
-switch = Switcher()
+ops = Switcher()
 
-# Type-based dispatch
-@switch(typerule={'a': int | float, 'b': str})
-def handle_typed(a, b):
-    return f"{a}:{b}"
+@ops
+def save_data(data):
+    # Save logic
+    pass
 
-# Value-based dispatch
-@switch(valrule=lambda a, b: a > 100)
-def handle_big(a, b):
-    return f"BIG {a}"
+@ops
+def load_data(data):
+    # Load logic
+    pass
 
-# Default handler
-@switch
-def handle_default(a, b):
-    return f"default {a}, {b}"
+@ops
+def delete_data(data):
+    # Delete logic
+    pass
 
-# Use it
-print(switch()(3, 'hi'))    # → 3:hi
-print(switch()(200, 0))     # → BIG 200
-print(switch()('x', 'y'))   # → default x, y
+# Call by name
+ops('save_data')(data)
 ```
 
-## Use Cases
+### 2. Custom Action Names
+
+**Problem**: You want friendly names different from function names.
+
+**Traditional approach** - Manual mapping:
+```python
+actions = {
+    'reset': destroy_all_data,
+    'clear': remove_cache,
+    'wipe': erase_history
+}
+
+action = actions[command]
+action()
+```
+
+**With SmartSwitch** - Alias registration:
+```python
+ops = Switcher()
+
+@ops('reset')
+def destroy_all_data():
+    pass
+
+@ops('clear')
+def remove_cache():
+    pass
+
+# Call with alias
+ops('reset')()
+```
+
+### 3. Value-Based Dispatch
+
+**Problem**: Choose handler based on actual data values.
+
+**Traditional approach** - Long if-elif chains:
+```python
+def process_user(user_type, reason):
+    if user_type == 'to_delete' and reason == 'no_payment':
+        # Remove user
+        pass
+    elif reason == 'no_payment':
+        # Send reminder
+        pass
+    elif user_type == 'to_delete':
+        # Archive
+        pass
+    else:
+        # Default
+        pass
+```
+
+**With SmartSwitch** - Declarative rules:
+```python
+users = Switcher()
+
+@users(valrule=lambda user_type, reason:
+       user_type == 'to_delete' and reason == 'no_payment')
+def remove_user(user_type, reason):
+    # Remove user
+    pass
+
+@users(valrule=lambda reason: reason == 'no_payment')
+def send_payment_reminder(user_type, reason):
+    # Send reminder
+    pass
+
+@users(valrule=lambda user_type: user_type == 'to_delete')
+def archive_user(user_type, reason):
+    # Archive
+    pass
+
+@users
+def handle_default(user_type, reason):
+    # Default
+    pass
+
+# Automatic dispatch
+users()(user_type='to_delete', reason='no_payment')
+```
+
+### 4. Type-Based Dispatch
+
+**Problem**: Handle different data types differently.
+
+**Traditional approach** - Multiple isinstance checks:
+```python
+def process(data):
+    if isinstance(data, str):
+        return data.upper()
+    elif isinstance(data, int):
+        return data * 2
+    elif isinstance(data, list):
+        return len(data)
+    else:
+        return None
+```
+
+**With SmartSwitch** - Type rules:
+```python
+processor = Switcher()
+
+@processor(typerule={'data': str})
+def process_string(data):
+    return data.upper()
+
+@processor(typerule={'data': int})
+def process_number(data):
+    return data * 2
+
+@processor(typerule={'data': list})
+def process_list(data):
+    return len(data)
+
+@processor
+def process_other(data):
+    return None
+
+# Automatic dispatch based on type
+processor()(data="hello")  # → HELLO
+processor()(data=42)       # → 84
+```
+
+## Real-World Examples
 
 ### API Routing
-
 ```python
 api = Switcher()
 
 @api(valrule=lambda method, path: method == 'GET' and path == '/users')
-def get_users_list(method, path, data=None):
-    return get_users()
+def get_users(method, path, data=None):
+    return list_all_users()
 
 @api(valrule=lambda method, path: method == 'POST' and path == '/users')
-def create_new_user(method, path, data=None):
-    return create_user(data)
+def create_user(method, path, data=None):
+    return create_new_user(data)
+
+@api
+def not_found(method, path, data=None):
+    return {"error": "Not Found", "status": 404}
 
 # Dispatch
 response = api()('GET', '/users')
 ```
 
 ### Payment Processing
-
 ```python
 payments = Switcher()
 
 @payments(typerule={'amount': int | float},
           valrule=lambda method, amount: method == 'crypto' and amount > 1000)
 def process_large_crypto(method, amount, details):
-    return process_crypto_large(amount, details)
+    return {"processor": "crypto_large", "fee": amount * 0.01}
 
 @payments(valrule=lambda method, **kw: method == 'credit_card')
-def process_credit_card_payment(method, amount, details):
-    return process_credit_card(amount, details)
+def process_card(method, amount, details):
+    return {"processor": "credit_card", "fee": amount * 0.03}
 
 @payments
-def process_generic_payment(method, amount, details):
-    return process_generic(method, amount, details)
-```
-
-### Command Pattern
-
-```python
-commands = Switcher()
-
-@commands
-def save_document(doc):
-    # Save logic
-    return {'undo': 'load_document', 'args': (doc.id,)}
-
-@commands
-def load_document(doc_id):
-    # Load logic
-    pass
-
-# Execute by name
-result = commands('save_document')(my_doc)
-# Later: undo
-commands(result['undo'])(*result['args'])
-```
-
-## How It Works
-
-SmartSwitch evaluates registered functions in order and calls the first one that matches:
-
-1. **Type rules** (`typerule`): Check argument types
-2. **Value rules** (`valrule`): Check runtime values
-3. **Default handler**: Catch-all with no rules
-
-### Three Ways to Use
-
-```python
-switch = Switcher()
-
-# 1. Register handlers with decorators
-@switch(typerule={'x': int})
-def my_handler(x): ...
-
-# 2. Call by name
-handler = switch('my_handler')
-handler(42)
-
-# 3. Automatic dispatch
-switch()(42)  # Chooses handler based on rules
+def process_generic(method, amount, details):
+    return {"error": "Unsupported payment method"}
 ```
 
 ## When to Use
 
 ✅ **Good for:**
-- API handlers, business logic, event processors
+- API handlers and request routers
+- Business logic with multiple branches
+- Plugin systems and extensible architectures
+- State machines and workflow engines
 - When you need type + value checks together
-- When functions do I/O or significant work (>1ms)
-- When modularity and testability matter
 
 ⚠️ **Consider alternatives for:**
-- Very fast functions (<10μs) called millions of times
 - Simple 2-3 case switches → use `if/elif`
 - Pure type dispatch → use `functools.singledispatch`
+- Very high-performance code (< 10μs functions called millions of times)
+
+## Features
+
+- 🎯 **Value-based dispatch**: Match on runtime values
+- 📦 **Named handler registry**: Look up by name or alias
+- 🔢 **Type-based dispatch**: Match on argument types
+- 🧩 **Modular**: Each handler is separate and testable
+- ✨ **Clean API**: Pythonic decorators
+- 🚀 **Efficient**: Optimized with caching (~1-2μs overhead)
 
 ## Performance
 
-SmartSwitch adds ~1-2 microseconds per dispatch. For functions that do real work (DB queries, API calls, business logic), this overhead is negligible:
+SmartSwitch adds ~1-2 microseconds per dispatch. For real-world functions (API calls, DB queries, business logic), this overhead is negligible:
 
 ```
 Function time: 50ms (API call)

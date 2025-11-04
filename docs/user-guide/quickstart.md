@@ -2,207 +2,211 @@
 
 This guide will get you up and running with SmartSwitch in minutes.
 
-## Basic Concept
+## Installation
 
-SmartSwitch allows you to register multiple implementations of the same function and automatically dispatch to the right one based on:
+```bash
+pip install smartswitch
+```
 
-1. **Type rules** - Match based on argument types
-2. **Value rules** - Match based on runtime values
+## The Four Core Patterns
 
-## Your First Switcher
+SmartSwitch solves four common problems. Let's see them in order of complexity.
+
+### 1. Call Functions by Name
+
+**Your situation**: You have operations and want to call them by name.
 
 ```python
 from smartswitch import Switcher
 
-# Create a switcher instance
-sw = Switcher()
+ops = Switcher()
 
-# Register a handler for strings
-@sw(typerule={'name': str})
-def greet_by_name(name):
-    return f"Hello, {name}!"
+@ops
+def save_data(data):
+    return f"Saved: {data}"
 
-# Register a handler for integers
-@sw(typerule={'age': int})
-def greet_by_age(age):
-    return f"You are {age} years old"
+@ops
+def load_data(data):
+    return f"Loaded: {data}"
 
-# Use automatic dispatch
-print(sw()(name="Alice"))  # Hello, Alice!
-print(sw()(age=25))        # You are 25 years old
-
-# Or call by name
-handler = sw('greet_by_name')
-print(handler(name="Bob"))  # Hello, Bob!
+# Call by name
+result = ops('save_data')("my_file.txt")
+print(result)  # → "Saved: my_file.txt"
 ```
 
-## Type Rules
+### 2. Use Custom Aliases
 
-Type rules dispatch based on the type of arguments:
+**Your situation**: Function names are long, but you want short command names.
+
+```python
+ops = Switcher()
+
+@ops('reset')
+def destroy_all_data():
+    return "Everything destroyed"
+
+@ops('clear')
+def remove_cache():
+    return "Cache cleared"
+
+# Call with friendly alias
+result = ops('reset')()
+print(result)  # → "Everything destroyed"
+```
+
+### 3. Dispatch on Values
+
+**Your situation**: Different logic based on actual data values.
 
 ```python
 sw = Switcher()
 
-@sw(typerule={'data': str})
+@sw(valrule=lambda status: status == 'active')
+def handle_active(status, user):
+    return f"Processing active user: {user}"
+
+@sw(valrule=lambda status: status == 'suspended')
+def handle_suspended(status, user):
+    return f"User {user} is suspended"
+
+@sw
+def handle_other(status, user):
+    return f"Unknown status for {user}"
+
+# Automatic dispatch based on values
+result = sw()(status='active', user='Alice')
+print(result)  # → "Processing active user: Alice"
+```
+
+### 4. Dispatch on Types
+
+**Your situation**: Different handling for different data types.
+
+```python
+processor = Switcher()
+
+@processor(typerule={'data': str})
 def process_string(data):
     return data.upper()
 
-@sw(typerule={'data': list})
+@processor(typerule={'data': int})
+def process_number(data):
+    return data * 2
+
+@processor(typerule={'data': list})
 def process_list(data):
-    return len(data)
+    return f"{len(data)} items"
 
-@sw(typerule={'data': dict})
-def process_dict(data):
-    return list(data.keys())
+# Automatic dispatch based on type
+print(processor()(data="hello"))    # → "HELLO"
+print(processor()(data=42))         # → 84
+print(processor()(data=[1,2,3]))    # → "3 items"
+```
+
+## Combining Patterns
+
+You can mix patterns as needed:
+
+```python
+handler = Switcher()
+
+# Type AND value rules together
+@handler(typerule={'amount': int | float},
+         valrule=lambda amount: amount > 1000)
+def handle_large_amount(amount):
+    return f"Large: {amount}"
+
+@handler(typerule={'amount': int | float})
+def handle_normal_amount(amount):
+    return f"Normal: {amount}"
+
+@handler
+def handle_other(amount):
+    return f"Invalid: {amount}"
 
 # Automatic dispatch
-print(sw()(data="hello"))      # HELLO
-print(sw()(data=[1, 2, 3]))    # 3
-print(sw()(data={'a': 1}))     # ['a']
+print(handler()(amount=5000))    # → "Large: 5000"
+print(handler()(amount=50))      # → "Normal: 50"
+print(handler()(amount="bad"))   # → "Invalid: bad"
 ```
 
-## Value Rules
-
-Value rules add conditions on runtime values:
-
-```python
-sw = Switcher()
-
-@sw(valrule=lambda x: x < 0)
-def handle_negative(x):
-    return "negative"
-
-@sw(valrule=lambda x: x == 0)
-def handle_zero(x):
-    return "zero"
-
-@sw(valrule=lambda x: x > 0)
-def handle_positive(x):
-    return "positive"
-
-# Automatic dispatch
-print(sw()(x=-5))  # negative
-print(sw()(x=0))   # zero
-print(sw()(x=5))   # positive
-
-# By name
-print(sw('handle_positive')(x=10))  # positive
-```
-
-## Combining Type and Value Rules
-
-You can combine both types of rules:
-
-```python
-sw = Switcher()
-
-# Only match positive integers
-@sw(typerule={'x': int}, valrule=lambda x: x > 0)
-def process_positive_int(x):
-    return f"Positive: {x}"
-
-# Only match negative integers
-@sw(typerule={'x': int}, valrule=lambda x: x < 0)
-def process_negative_int(x):
-    return f"Negative: {x}"
-
-# Only match strings
-@sw(typerule={'x': str})
-def process_string(x):
-    return f"String: {x}"
-
-print(sw()(x=5))      # Positive: 5
-print(sw()(x=-5))     # Negative: -5
-print(sw()(x="hi"))   # String: hi
-```
-
-## Default Handlers
-
-Register a fallback handler without rules:
-
-```python
-sw = Switcher()
-
-# Specific handlers
-@sw(typerule={'data': int})
-def process_integer(data):
-    return f"Integer: {data}"
-
-# Default handler (catches everything else)
-@sw
-def process_default(data):
-    return f"Unknown type: {type(data).__name__}"
-
-print(sw()(data=42))      # Integer: 42
-print(sw()(data="text"))  # Unknown type: str
-print(sw()(data=[1,2]))   # Unknown type: list
-```
-
-## Multiple Parameters
-
-Handlers can work with multiple parameters:
-
-```python
-sw = Switcher()
-
-@sw(typerule={'a': int, 'b': int})
-def add_numbers(a, b):
-    return a + b
-
-@sw(typerule={'a': str, 'b': str})
-def concat_strings(a, b):
-    return a + b  # String concatenation
-
-@sw(typerule={'a': int, 'b': str})
-def format_mixed(a, b):
-    return f"{a}:{b}"
-
-print(sw()(a=5, b=10))       # 15
-print(sw()(a="hi", b="!"))   # hi!
-print(sw()(a=3, b="test"))   # 3:test
-```
-
-## Using Union Types
-
-You can specify multiple allowed types:
-
-```python
-from typing import Union
-
-sw = Switcher()
-
-@sw(typerule={'value': int | float})
-def process_number(value):
-    return value * 2
-
-@sw(typerule={'value': str})
-def process_text(value):
-    return value.upper()
-
-print(sw()(value=5))      # 10
-print(sw()(value=2.5))    # 5.0
-print(sw()(value="hi"))   # HI
-```
-
-## Two Ways to Call
+## Two Ways to Use
 
 SmartSwitch offers two calling patterns:
 
 ```python
 sw = Switcher()
 
-@sw(typerule={'x': int})
-def compute(x):
+@sw
+def my_handler(x):
     return x * 2
 
-# 1. Automatic dispatch - rules decide which handler
-result = sw()(x=5)
+# 1. By name - you choose the handler
+result = sw('my_handler')(x=5)  # → 10
 
-# 2. By name - explicitly get the handler
-handler = sw('compute')
-result = handler(x=5)
+# 2. Automatic - rules choose the handler
+# (when using typerule/valrule)
+result = sw()(x=5)  # → 10 if my_handler matches
+```
+
+## Real Example: API Router
+
+```python
+api = Switcher()
+
+@api(valrule=lambda method, path: method == 'GET' and path == '/users')
+def list_users(method, path):
+    return {"users": ["Alice", "Bob"]}
+
+@api(valrule=lambda method, path: method == 'POST' and path == '/users')
+def create_user(method, path):
+    return {"created": True}
+
+@api
+def not_found(method, path):
+    return {"error": "Not Found"}
+
+# Use it
+response = api()(method='GET', path='/users')
+print(response)  # → {"users": ["Alice", "Bob"]}
 ```
 
 ## Next Steps
 
-Learn more in the [Basic Usage Guide](basic.md) or explore [Examples](../examples/index.md).
+- Learn more in the [Basic Usage Guide](basic.md)
+- See more examples in [Examples](../examples/index.md)
+- Understand advanced features in [Advanced Guide](advanced/index.md)
+
+## Quick Reference
+
+```python
+from smartswitch import Switcher
+
+sw = Switcher()
+
+# Register by function name
+@sw
+def my_function(): pass
+
+# Register with alias
+@sw('alias_name')
+def my_function(): pass
+
+# Register with value rule
+@sw(valrule=lambda x: x > 10)
+def handle_large(x): pass
+
+# Register with type rule
+@sw(typerule={'x': int})
+def handle_int(x): pass
+
+# Register with both
+@sw(typerule={'x': int}, valrule=lambda x: x > 0)
+def handle_positive_int(x): pass
+
+# Call by name
+sw('my_function')()
+
+# Automatic dispatch
+sw()(x=value)
+```

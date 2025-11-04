@@ -31,7 +31,7 @@ class BoundSwitcher:
         Returns:
             Bound method ready to call without passing self
         """
-        func = self._switcher._spells[name]
+        func = self._switcher._handlers[name]
         return partial(func, self._instance)
 
 
@@ -51,7 +51,7 @@ class Switcher:
     - __slots__ for reduced memory overhead
     """
 
-    __slots__ = ('name', '_spells', '_rules', '_default_handler', '_param_names_cache')
+    __slots__ = ('name', '_handlers', '_rules', '_default_handler', '_param_names_cache')
 
     def __init__(self, name: str = "default"):
         """
@@ -61,7 +61,7 @@ class Switcher:
             name: Optional name for this switch (for debugging)
         """
         self.name = name
-        self._spells = {}  # name -> function mapping
+        self._handlers = {}  # name -> function mapping
         self._rules = []  # list of (matcher, function) tuples
         self._default_handler = None  # default catch-all handler
         self._param_names_cache = {}  # function -> param names cache
@@ -69,28 +69,60 @@ class Switcher:
     def __call__(self, arg=None, *, typerule=None, valrule=None):
         """
         Multi-purpose call method supporting different invocation patterns.
-        
+
         Patterns:
         1. @switch                    -> register as default handler
-        2. @switch(typerule=..., valrule=...) -> register with rules
-        3. switch("name")            -> get handler by name
-        4. switch()                  -> get dispatcher function
-        
+        2. @switch('alias')           -> register with custom name
+        3. @switch(typerule=..., valrule=...) -> register with rules
+        4. switch("name")            -> get handler by name
+        5. switch()                  -> get dispatcher function
+
         Args:
             arg: Function to decorate, handler name, or None for dispatcher
             typerule: Dict mapping parameter names to expected types
             valrule: Callable that receives **kwargs and returns bool
-            
+
         Returns:
             Decorated function, handler, or dispatcher depending on usage
         """
         # Case 1: @switch (decorator without parameters - default handler)
         if callable(arg) and typerule is None and valrule is None:
-            self._spells[arg.__name__] = arg
+            if arg.__name__ in self._handlers:
+                existing = self._handlers[arg.__name__]
+                raise ValueError(
+                    f"Handler '{arg.__name__}' already taken by function '{existing.__name__}'"
+                )
+            self._handlers[arg.__name__] = arg
             self._default_handler = arg
             return arg
 
-        # Case 2: @switch(typerule=..., valrule=...) - returns decorator
+        # Case 2: @switch('alias') - register with custom name OR lookup
+        if isinstance(arg, str) and typerule is None and valrule is None:
+            # If handler exists, check if being used as decorator or lookup
+            if arg in self._handlers:
+                handler = self._handlers[arg]
+                # Create a wrapper that can be used both ways
+                class HandlerOrDecorator:
+                    def __call__(self, *args, **kwargs):
+                        # If called with a function as first arg and it's callable,
+                        # assume decorator usage
+                        if len(args) == 1 and callable(args[0]) and not kwargs:
+                            # Check if it looks like it's being used as decorator
+                            # (single callable argument, no other args)
+                            import inspect
+                            if inspect.isfunction(args[0]) or inspect.ismethod(args[0]):
+                                raise ValueError(f"Alias '{arg}' is already registered")
+                        # Normal function call
+                        return handler(*args, **kwargs)
+                return HandlerOrDecorator()
+
+            # Not found, return decorator for registration
+            def decorator(func):
+                self._handlers[arg] = func
+                return func
+            return decorator
+
+        # Case 3: @switch(typerule=..., valrule=...) - returns decorator
         if (typerule is not None or valrule is not None):
             def decorator(func):
                 # OPTIMIZATION: Cache signature once
@@ -128,14 +160,10 @@ class Switcher:
 
                 self._rules.append((matches, func))
                 # Register by name so it can be retrieved with sw('name')
-                self._spells[func.__name__] = func
+                self._handlers[func.__name__] = func
                 return func
             
             return decorator
-
-        # Case 3: switch("name") - get by name
-        if isinstance(arg, str):
-            return self._spells[arg]
 
         # Case 4: switch() - invoker
         if arg is None:

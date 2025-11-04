@@ -23,7 +23,7 @@ class TestBasicSwitcher:
         """Test creating a basic switcher."""
         sw = Switcher()
         assert sw.name == "default"
-        assert sw._spells == {}
+        assert sw._handlers == {}
         assert sw._rules == []
         assert sw._default_handler is None
 
@@ -45,7 +45,7 @@ class TestDecoratorPatterns:
             return f"default: {x}"
 
         assert sw._default_handler == handler
-        assert "handler" in sw._spells
+        assert "handler" in sw._handlers
 
     def test_typerule_decorator(self):
         """Test @sw(typerule=...) decorator."""
@@ -56,7 +56,7 @@ class TestDecoratorPatterns:
             return f"int: {x}"
 
         assert len(sw._rules) == 1
-        assert "handler" in sw._spells
+        assert "handler" in sw._handlers
 
     def test_valrule_decorator(self):
         """Test @sw(valrule=...) decorator."""
@@ -67,7 +67,7 @@ class TestDecoratorPatterns:
             return "positive"
 
         assert len(sw._rules) == 1
-        assert "handler" in sw._spells
+        assert "handler" in sw._handlers
 
     def test_combined_rules_decorator(self):
         """Test @sw(typerule=..., valrule=...) decorator."""
@@ -78,7 +78,7 @@ class TestDecoratorPatterns:
             return "positive int"
 
         assert len(sw._rules) == 1
-        assert "handler" in sw._spells
+        assert "handler" in sw._handlers
 
 
 class TestTypeRules:
@@ -306,15 +306,93 @@ class TestNamedHandlerLookup:
         assert sw('compute')(x=5) == 10
 
     def test_handler_not_found_by_name(self):
-        """Test KeyError when handler name doesn't exist."""
+        """Test that unknown name returns decorator for alias registration."""
         sw = Switcher()
 
         @sw
         def existing(x):
             return x
 
-        with pytest.raises(KeyError):
-            sw('nonexistent')
+        # Getting unknown name returns a decorator (for alias support)
+        result = sw('nonexistent')
+        assert callable(result)  # It's a decorator
+
+        # Can use it to register with that alias
+        @result
+        def new_handler(x):
+            return "new"
+
+        # Now it's registered and accessible
+        assert sw('nonexistent')(x=1) == "new"
+
+
+class TestCustomAlias:
+    """Test custom alias registration with @sw('alias')."""
+
+    def test_register_with_alias(self):
+        """Test registering handler with custom alias."""
+        sw = Switcher()
+
+        @sw('reset')
+        def destroyall():
+            return "destroyed"
+
+        # Can call with alias
+        assert sw('reset')() == "destroyed"
+
+    def test_alias_different_from_function_name(self):
+        """Test alias is different from function name."""
+        sw = Switcher()
+
+        @sw('custom_name')
+        def my_function():
+            return "custom"
+
+        # Accessible by alias
+        assert sw('custom_name')() == "custom"
+
+    def test_multiple_aliases(self):
+        """Test registering multiple handlers with different aliases."""
+        sw = Switcher()
+
+        @sw('action1')
+        def handler1():
+            return "one"
+
+        @sw('action2')
+        def handler2():
+            return "two"
+
+        assert sw('action1')() == "one"
+        assert sw('action2')() == "two"
+
+    def test_alias_already_registered_raises_error(self):
+        """Test that registering with existing alias raises ValueError."""
+        sw = Switcher()
+
+        @sw('action')
+        def first():
+            return "first"
+
+        # Try to register another handler with same alias
+        with pytest.raises(ValueError, match="Alias 'action' is already registered"):
+            @sw('action')
+            def second():
+                return "second"
+
+    def test_function_name_already_registered_raises_error(self):
+        """Test that registering function with existing name raises ValueError."""
+        sw = Switcher()
+
+        @sw
+        def my_function():
+            return "first"
+
+        # Try to register another function with same name
+        with pytest.raises(ValueError, match="Handler 'my_function' already taken by function"):
+            @sw
+            def my_function():
+                return "second"
 
 
 class TestAutomaticDispatch:
@@ -352,11 +430,11 @@ class TestAutomaticDispatch:
         sw = Switcher()
 
         @sw(typerule={'x': int})
-        def handle(x):
+        def handle_int(x):
             return "int"
 
         @sw
-        def handle(x):
+        def handle_default(x):
             return "default"
 
         # Default catches non-int
@@ -453,30 +531,31 @@ class TestDescriptorProtocol:
 class TestEdgeCases:
     """Test edge cases and special scenarios."""
 
-    def test_same_function_name_multiple_rules(self):
-        """Test multiple handlers with same function name."""
+    def test_multiple_handlers_with_unique_names(self):
+        """Test multiple handlers with unique function names."""
         sw = Switcher()
 
         @sw(typerule={'x': int})
-        def process(x):
+        def process_int(x):
             return "int"
 
         @sw(typerule={'x': str})
-        def process(x):
+        def process_str(x):
             return "str"
 
         @sw
-        def process(x):
+        def process_default(x):
             return "default"
 
-        # All registered
-        assert len(sw._spells) == 1  # Same name, last one wins in _spells
+        # All registered with unique names
+        assert len(sw._handlers) == 3
         assert len(sw._rules) == 2
         assert sw._default_handler is not None
 
-        # But dispatch works correctly
+        # Dispatch works correctly
         assert sw()(x=42) == "int"
         assert sw()(x="hi") == "str"
+        assert sw()(x=[1,2]) == "default"
 
     def test_any_type_always_matches(self):
         """Test that Any type matches everything."""
@@ -507,11 +586,11 @@ class TestEdgeCases:
 
         # Valrule expects 'y' but we only pass 'x'
         @sw(valrule=lambda **kw: kw.get('y', 0) > 5)
-        def handle(x, y=0):
+        def handle_matched(x, y=0):
             return "matched"
 
         @sw
-        def handle(x, y=0):
+        def handle_default(x, y=0):
             return "default"
 
         # With y > 5
@@ -552,15 +631,15 @@ class TestRealWorldScenarios:
         api = Switcher()
 
         @api(valrule=lambda method, path: method == 'GET' and path == '/users')
-        def handle(method, path):
+        def handle_list_users(method, path):
             return "list users"
 
         @api(valrule=lambda method, path: method == 'POST' and path == '/users')
-        def handle(method, path):
+        def handle_create_user(method, path):
             return "create user"
 
         @api
-        def handle(method, path):
+        def handle_not_found(method, path):
             return "not found"
 
         assert api()(method='GET', path='/users') == "list users"
@@ -573,16 +652,16 @@ class TestRealWorldScenarios:
 
         @validator(typerule={'value': str},
                    valrule=lambda value: '@' in value)
-        def validate(value):
+        def validate_email(value):
             return "email"
 
         @validator(typerule={'value': int},
                    valrule=lambda value: 0 <= value <= 100)
-        def validate(value):
+        def validate_percentage(value):
             return "percentage"
 
         @validator
-        def validate(value):
+        def validate_invalid(value):
             return "invalid"
 
         assert validator()(value="user@example.com") == "email"
