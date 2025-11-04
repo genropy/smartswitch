@@ -1,7 +1,7 @@
-from smartswitch import SwitchBook
+from smartswitch import Switcher
 
 def test_basic_dispatch():
-    book = SwitchBook("test")
+    book = Switcher("test")
 
     @book
     def default(a, b): return f"default {a}, {b}"

@@ -10,12 +10,11 @@ authors = [
     {name = "Giovanni Porcari", email = "softwell@softwell.it"},
 ]
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -51,10 +50,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/genropy/smartswitch"
+Homepage = "https://github.com/softwell-it/smartswitch"
 Documentation = "https://smartswitch.readthedocs.io"
-Repository = "https://github.com/genropy/smartswitch"
-"Bug Tracker" = "https://github.com/genropy/smartswitch/issues"
+Repository = "https://github.com/softwell-it/smartswitch"
+"Bug Tracker" = "https://github.com/softwell-it/smartswitch/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

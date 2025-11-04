@@ -24,21 +24,33 @@ from smartswitch import Switcher
 
 sw = Switcher()
 
-@sw.typerule(str)
+# Value-based dispatch (more specific - register first!)
+@sw(valrule=lambda data: isinstance(data, int) and data < 0)
 def process(data):
-    return f"Processing string: {data}"
+    return "Negative number"
 
-@sw.typerule(int)
+# Type-based dispatch
+@sw(typerule={'data': str})
 def process(data):
-    return f"Processing number: {data}"
+    return f"String: {data}"
 
-@sw.valrule(lambda x: x < 0)
+@sw(typerule={'data': int})
 def process(data):
-    return "Processing negative number"
+    return f"Number: {data}"
 
-print(sw('process', "hello"))    # Processing string: hello
-print(sw('process', 42))          # Processing number: 42
-print(sw('process', -5))          # Processing negative number
+# Default handler
+@sw
+def process(data):
+    return f"Other: {data}"
+
+# Use automatic dispatch
+print(sw()(data="hello"))  # String: hello
+print(sw()(data=42))       # Number: 42
+print(sw()(data=-5))       # Negative number
+
+# Or call by name
+handler = sw('process')
+print(handler(data="world"))  # String: world
 ```
 
 ## Why SmartSwitch?

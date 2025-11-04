@@ -6,29 +6,56 @@ Optimized version with ~3x performance improvement over naive implementation.
 
 import inspect
 from typing import Any, get_origin, get_args, Union
+from functools import partial
 
 
-class SwitchBook:
+class BoundSwitcher:
+    """
+    A bound version of Switcher that automatically binds 'self' to retrieved handlers.
+    Created when accessing a Switcher instance as a class attribute.
+    """
+
+    __slots__ = ('_switcher', '_instance')
+
+    def __init__(self, switcher, instance):
+        self._switcher = switcher
+        self._instance = instance
+
+    def __call__(self, name):
+        """
+        Get a handler by name and bind it to the instance.
+
+        Args:
+            name: Handler function name
+
+        Returns:
+            Bound method ready to call without passing self
+        """
+        func = self._switcher._spells[name]
+        return partial(func, self._instance)
+
+
+class Switcher:
     """
     Intelligent function dispatch based on type and value rules.
-    
+
     Supports three modes:
     1. Dispatch by name: switch("handler_name")
     2. Automatic dispatch: switch()(args) - chooses handler by rules
     3. Both: register with name, dispatch automatically
-    
+
     Optimizations applied:
     - Cached signature inspection (done once per function)
     - Manual kwargs building (no expensive bind_partial)
     - Pre-compiled type checkers
     - __slots__ for reduced memory overhead
     """
-    
+
     __slots__ = ('name', '_spells', '_rules', '_default_handler', '_param_names_cache')
-    
+
     def __init__(self, name: str = "default"):
         """
-        Initialize a new SwitchBook.
+        Initialize a new Switcher.
         
         Args:
             name: Optional name for this switch (for debugging)
@@ -86,20 +113,22 @@ class SwitchBook:
                             args_dict[name] = a[i]
                         elif name in kw:
                             args_dict[name] = kw[name]
-                    
+
                     # Type checks
                     if type_checks:
                         for name, checker in type_checks:
                             if name in args_dict and not checker(args_dict[name]):
                                 return False
-                    
+
                     # Value rule
                     if valrule and not valrule(**args_dict):
                         return False
-                    
+
                     return True
 
                 self._rules.append((matches, func))
+                # Register by name so it can be retrieved with sw('name')
+                self._spells[func.__name__] = func
                 return func
             
             return decorator
@@ -121,7 +150,27 @@ class SwitchBook:
                 raise ValueError(f"No rule matched for {a}, {kw}")
             return invoker
 
-        raise TypeError("SwitchBook.__call__ expects callable, str, or None")
+        raise TypeError("Switcher.__call__ expects callable, str, or None")
+
+    def __get__(self, instance, owner=None):
+        """
+        Descriptor protocol support for automatic method binding.
+
+        When a Switcher is accessed as a class attribute, this returns
+        a BoundSwitcher that automatically binds 'self' to retrieved handlers.
+
+        Args:
+            instance: The instance accessing this descriptor
+            owner: The class owning this descriptor
+
+        Returns:
+            BoundSwitcher if accessed from instance, self if accessed from class
+        """
+        if instance is None:
+            # Accessed from class, return the switcher itself
+            return self
+        # Accessed from instance, return bound version
+        return BoundSwitcher(self, instance)
 
     def _compile_type_checks(self, typerule, param_names):
         """

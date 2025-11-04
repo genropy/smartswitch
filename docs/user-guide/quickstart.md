@@ -18,18 +18,22 @@ from smartswitch import Switcher
 sw = Switcher()
 
 # Register a handler for strings
-@sw.typerule(str)
+@sw(typerule={'name': str})
 def greet(name):
     return f"Hello, {name}!"
 
 # Register a handler for integers
-@sw.typerule(int)
+@sw(typerule={'age': int})
 def greet(age):
     return f"You are {age} years old"
 
-# Call the appropriate handler
-print(sw('greet', "Alice"))  # Hello, Alice!
-print(sw('greet', 25))        # You are 25 years old
+# Use automatic dispatch
+print(sw()(name="Alice"))  # Hello, Alice!
+print(sw()(age=25))        # You are 25 years old
+
+# Or call by name
+handler = sw('greet')
+print(handler(name="Bob"))  # Hello, Bob!
 ```
 
 ## Type Rules
@@ -37,57 +41,79 @@ print(sw('greet', 25))        # You are 25 years old
 Type rules dispatch based on the type of arguments:
 
 ```python
-@sw.typerule(str)
+sw = Switcher()
+
+@sw(typerule={'data': str})
 def process(data):
     return data.upper()
 
-@sw.typerule(list)
+@sw(typerule={'data': list})
 def process(data):
     return len(data)
 
-@sw.typerule(dict)
+@sw(typerule={'data': dict})
 def process(data):
     return list(data.keys())
+
+# Automatic dispatch
+print(sw()(data="hello"))      # HELLO
+print(sw()(data=[1, 2, 3]))    # 3
+print(sw()(data={'a': 1}))     # ['a']
 ```
 
 ## Value Rules
 
-Value rules add conditions on values:
+Value rules add conditions on runtime values:
 
 ```python
-@sw.valrule(lambda x: x < 0)
+sw = Switcher()
+
+@sw(valrule=lambda x: x < 0)
 def handle_number(x):
     return "negative"
 
-@sw.valrule(lambda x: x == 0)
+@sw(valrule=lambda x: x == 0)
 def handle_number(x):
     return "zero"
 
-@sw.valrule(lambda x: x > 0)
+@sw(valrule=lambda x: x > 0)
 def handle_number(x):
     return "positive"
 
-print(sw('handle_number', -5))  # negative
-print(sw('handle_number', 0))   # zero
-print(sw('handle_number', 5))   # positive
+# Automatic dispatch
+print(sw()(x=-5))  # negative
+print(sw()(x=0))   # zero
+print(sw()(x=5))   # positive
+
+# By name
+print(sw('handle_number')(x=10))  # positive
 ```
 
-## Combining Rules
+## Combining Type and Value Rules
 
-You can combine type and value rules:
+You can combine both types of rules:
 
 ```python
+sw = Switcher()
+
 # Only match positive integers
-@sw.typerule(int)
-@sw.valrule(lambda x: x > 0)
+@sw(typerule={'x': int}, valrule=lambda x: x > 0)
 def process_positive_int(x):
     return f"Positive: {x}"
 
 # Only match negative integers
-@sw.typerule(int)
-@sw.valrule(lambda x: x < 0)
+@sw(typerule={'x': int}, valrule=lambda x: x < 0)
 def process_negative_int(x):
     return f"Negative: {x}"
+
+# Only match strings
+@sw(typerule={'x': str})
+def process_string(x):
+    return f"String: {x}"
+
+print(sw()(x=5))      # Positive: 5
+print(sw()(x=-5))     # Negative: -5
+print(sw()(x="hi"))   # String: hi
 ```
 
 ## Default Handlers
@@ -95,9 +121,86 @@ def process_negative_int(x):
 Register a fallback handler without rules:
 
 ```python
-@sw.default()
-def process_anything(data):
+sw = Switcher()
+
+# Specific handlers
+@sw(typerule={'data': int})
+def process(data):
+    return f"Integer: {data}"
+
+# Default handler (catches everything else)
+@sw
+def process(data):
     return f"Unknown type: {type(data).__name__}"
+
+print(sw()(data=42))      # Integer: 42
+print(sw()(data="text"))  # Unknown type: str
+print(sw()(data=[1,2]))   # Unknown type: list
+```
+
+## Multiple Parameters
+
+Handlers can work with multiple parameters:
+
+```python
+sw = Switcher()
+
+@sw(typerule={'a': int, 'b': int})
+def calculate(a, b):
+    return a + b
+
+@sw(typerule={'a': str, 'b': str})
+def calculate(a, b):
+    return a + b  # String concatenation
+
+@sw(typerule={'a': int, 'b': str})
+def calculate(a, b):
+    return f"{a}:{b}"
+
+print(sw()(a=5, b=10))       # 15
+print(sw()(a="hi", b="!"))   # hi!
+print(sw()(a=3, b="test"))   # 3:test
+```
+
+## Using Union Types
+
+You can specify multiple allowed types:
+
+```python
+from typing import Union
+
+sw = Switcher()
+
+@sw(typerule={'value': int | float})
+def process_number(value):
+    return value * 2
+
+@sw(typerule={'value': str})
+def process_text(value):
+    return value.upper()
+
+print(sw()(value=5))      # 10
+print(sw()(value=2.5))    # 5.0
+print(sw()(value="hi"))   # HI
+```
+
+## Two Ways to Call
+
+SmartSwitch offers two calling patterns:
+
+```python
+sw = Switcher()
+
+@sw(typerule={'x': int})
+def compute(x):
+    return x * 2
+
+# 1. Automatic dispatch - rules decide which handler
+result = sw()(x=5)
+
+# 2. By name - explicitly get the handler
+handler = sw('compute')
+result = handler(x=5)
 ```
 
 ## Next Steps
