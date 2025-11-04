@@ -4,6 +4,18 @@
   # SmartSwitch 🧠
 
   **Intelligent rule-based function dispatch for Python**
+
+  [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+  [![PyPI version](https://img.shields.io/pypi/v/smartswitch.svg)](https://pypi.org/project/smartswitch/)
+  [![PyPI Downloads](https://img.shields.io/pypi/dm/smartswitch.svg)](https://pypi.org/project/smartswitch/)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Development Status](https://img.shields.io/badge/status-beta-orange.svg)](https://pypi.org/project/smartswitch/)
+
+  [![Tests](https://github.com/softwell-it/smartswitch/workflows/Tests/badge.svg)](https://github.com/softwell-it/smartswitch/actions)
+  [![codecov](https://codecov.io/gh/softwell-it/smartswitch/branch/main/graph/badge.svg)](https://codecov.io/gh/softwell-it/smartswitch)
+  [![Documentation](https://readthedocs.org/projects/smartswitch/badge/?version=latest)](https://smartswitch.readthedocs.io/en/latest/)
+  [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+  [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 </div>
 
 `smartswitch` lets you register functions that are called automatically based on argument types and runtime values — no more chains of `if` or `match`.
