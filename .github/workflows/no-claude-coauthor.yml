@@ -1,0 +1,36 @@
+name: Reject Claude Code Commits
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ main ]
+
+jobs:
+  check-commit-authors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history
+      
+      - name: Check for Claude Code co-author
+        run: |
+          # Get all commits in this PR/push
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            COMMITS=$(git log --format=%B origin/${{ github.base_ref }}..${{ github.sha }})
+          else
+            COMMITS=$(git log --format=%B ${{ github.event.before }}..${{ github.sha }})
+          fi
+          
+          # Check if any commit has Claude Code as co-author
+          if echo "$COMMITS" | grep -i "Co-authored-by.*claude"; then
+            echo "❌ ERROR: Commit contains Claude Code as co-author"
+            echo "Please remove co-author attribution from commit messages"
+            echo ""
+            echo "Rejected commits:"
+            echo "$COMMITS" | grep -B5 -i "Co-authored-by.*claude"
+            exit 1
+          fi
+          
+          echo "✅ No Claude Code co-author found"
