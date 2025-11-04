@@ -17,7 +17,7 @@ pip install smartswitch
 To install the latest development version:
 
 ```bash
-git clone https://github.com/softwell-it/smartswitch.git
+git clone https://github.com/genropy/smartswitch.git
 cd smartswitch
 pip install -e .
 ```

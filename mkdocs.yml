@@ -1,8 +1,8 @@
 site_name: SmartSwitch
 site_description: Intelligent rule-based function dispatch for Python
 site_url: https://smartswitch.readthedocs.io
-repo_url: https://github.com/softwell-it/smartswitch
-repo_name: softwell-it/smartswitch
+repo_url: https://github.com/genropy/smartswitch
+repo_name: genropy/smartswitch
 
 theme:
   name: material
@@ -61,4 +61,4 @@ plugins:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/softwell-it/smartswitch
+      link: https://github.com/genropy/smartswitch

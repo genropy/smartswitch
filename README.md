@@ -11,8 +11,8 @@
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Development Status](https://img.shields.io/badge/status-beta-orange.svg)](https://pypi.org/project/smartswitch/)
 
-  [![Tests](https://github.com/softwell-it/smartswitch/workflows/Tests/badge.svg)](https://github.com/softwell-it/smartswitch/actions)
-  [![codecov](https://codecov.io/gh/softwell-it/smartswitch/branch/main/graph/badge.svg)](https://codecov.io/gh/softwell-it/smartswitch)
+  [![Tests](https://github.com/genropy/smartswitch/workflows/Tests/badge.svg)](https://github.com/genropy/smartswitch/actions)
+  [![codecov](https://codecov.io/gh/genropy/smartswitch/branch/main/graph/badge.svg)](https://codecov.io/gh/genropy/smartswitch)
   [![Documentation](https://readthedocs.org/projects/smartswitch/badge/?version=latest)](https://smartswitch.readthedocs.io/en/latest/)
   [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
   [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
