@@ -26,15 +26,15 @@ Register handlers that match based on argument types using the `typerule` parame
 sw = Switcher()
 
 @sw(typerule={'text': str})
-def process(text):
+def process_text(text):
     return text.upper()
 
 @sw(typerule={'number': int})
-def process(number):
+def process_number(number):
     return number * 2
 
 @sw(typerule={'items': list})
-def process(items):
+def process_items(items):
     return len(items)
 
 # Automatic dispatch
@@ -122,11 +122,11 @@ Use `sw()` to get a dispatcher that automatically selects the right handler:
 sw = Switcher()
 
 @sw(typerule={'x': int})
-def handle(x):
+def handle_int(x):
     return "integer"
 
 @sw(typerule={'x': str})
-def handle(x):
+def handle_str(x):
     return "string"
 
 # Call with sw()
@@ -164,17 +164,17 @@ sw = Switcher()
 
 # Registered first - more specific
 @sw(typerule={'x': int}, valrule=lambda x: x < 0)
-def handle(x):
+def handle_negative_int(x):
     return "negative int"
 
 # Registered second - less specific
 @sw(typerule={'x': int})
-def handle(x):
+def handle_any_int(x):
     return "any int"
 
 # Default - least specific
 @sw
-def handle(x):
+def handle_default(x):
     return "anything"
 
 print(sw()(x=-5))    # "negative int" (first match)
@@ -224,11 +224,11 @@ class Company:
 sw = Switcher()
 
 @sw(typerule={'entity': Person})
-def greet(entity):
+def greet_person(entity):
     return f"Hello, {entity.name}!"
 
 @sw(typerule={'entity': Company})
-def greet(entity):
+def greet_company(entity):
     return f"Welcome, {entity.name} Corp!"
 
 person = Person("Alice")
@@ -296,11 +296,11 @@ Always provide a default handler to avoid this:
 sw = Switcher()
 
 @sw(typerule={'x': int})
-def handle(x):
+def handle_int(x):
     return f"int: {x}"
 
 @sw  # Default catches everything
-def handle(x):
+def handle_other(x):
     return f"other: {x}"
 
 # No error

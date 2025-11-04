@@ -43,17 +43,17 @@ switch = Switcher()
 
 # Type-based dispatch
 @switch(typerule={'a': int | float, 'b': str})
-def handle(a, b):
+def handle_typed(a, b):
     return f"{a}:{b}"
 
 # Value-based dispatch
 @switch(valrule=lambda a, b: a > 100)
-def handle(a, b):
+def handle_big(a, b):
     return f"BIG {a}"
 
 # Default handler
 @switch
-def handle(a, b):
+def handle_default(a, b):
     return f"default {a}, {b}"
 
 # Use it
@@ -70,11 +70,11 @@ print(switch()('x', 'y'))   # → default x, y
 api = Switcher()
 
 @api(valrule=lambda method, path: method == 'GET' and path == '/users')
-def handle_request(method, path, data=None):
+def get_users_list(method, path, data=None):
     return get_users()
 
 @api(valrule=lambda method, path: method == 'POST' and path == '/users')
-def handle_request(method, path, data=None):
+def create_new_user(method, path, data=None):
     return create_user(data)
 
 # Dispatch
@@ -86,17 +86,17 @@ response = api()('GET', '/users')
 ```python
 payments = Switcher()
 
-@payments(typerule={'amount': int | float}, 
+@payments(typerule={'amount': int | float},
           valrule=lambda method, amount: method == 'crypto' and amount > 1000)
-def process_payment(method, amount, details):
+def process_large_crypto(method, amount, details):
     return process_crypto_large(amount, details)
 
-@payments(valrule=lambda method: method == 'credit_card')
-def process_payment(method, amount, details):
+@payments(valrule=lambda method, **kw: method == 'credit_card')
+def process_credit_card_payment(method, amount, details):
     return process_credit_card(amount, details)
 
 @payments
-def process_payment(method, amount, details):
+def process_generic_payment(method, amount, details):
     return process_generic(method, amount, details)
 ```
 

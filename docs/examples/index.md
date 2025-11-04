@@ -12,19 +12,19 @@ from smartswitch import Switcher
 sw = Switcher()
 
 @sw(typerule={'data': str})
-def process(data):
+def process_string(data):
     return f"String: {data}"
 
 @sw(typerule={'data': int})
-def process(data):
+def process_int(data):
     return f"Number: {data}"
 
 @sw(typerule={'data': list})
-def process(data):
+def process_list(data):
     return f"List with {len(data)} items"
 
 @sw
-def process(data):
+def process_other(data):
     return f"Unknown: {type(data).__name__}"
 
 # Use it
@@ -44,25 +44,25 @@ from smartswitch import Switcher
 api = Switcher()
 
 @api(valrule=lambda method, path: method == 'GET' and path == '/users')
-def handle_request(method, path, data=None):
+def handle_list_users(method, path, data=None):
     return {"action": "list_users"}
 
 @api(valrule=lambda method, path: method == 'POST' and path == '/users')
-def handle_request(method, path, data=None):
+def handle_create_user(method, path, data=None):
     return {"action": "create_user", "data": data}
 
 @api(valrule=lambda method, path: method == 'GET' and path.startswith('/users/'))
-def handle_request(method, path, data=None):
+def handle_get_user(method, path, data=None):
     user_id = path.split('/')[-1]
     return {"action": "get_user", "id": user_id}
 
 @api(valrule=lambda method, path: method == 'DELETE' and path.startswith('/users/'))
-def handle_request(method, path, data=None):
+def handle_delete_user(method, path, data=None):
     user_id = path.split('/')[-1]
     return {"action": "delete_user", "id": user_id}
 
 @api
-def handle_request(method, path, data=None):
+def handle_not_found(method, path, data=None):
     return {"error": "Not Found", "status": 404}
 
 # Use it
@@ -91,30 +91,30 @@ validator = Switcher()
 # Email validation
 @validator(typerule={'value': str},
            valrule=lambda value: '@' in value and '.' in value.split('@')[1])
-def validate(value):
+def validate_email(value):
     return {"valid": True, "type": "email", "value": value}
 
 # Phone number validation (simple)
 @validator(typerule={'value': str},
            valrule=lambda value: value.replace('-', '').replace(' ', '').isdigit())
-def validate(value):
+def validate_phone(value):
     return {"valid": True, "type": "phone", "value": value}
 
 # Integer in range
 @validator(typerule={'value': int},
            valrule=lambda value: 0 <= value <= 100)
-def validate(value):
+def validate_percentage(value):
     return {"valid": True, "type": "percentage", "value": value}
 
 # Positive number
 @validator(typerule={'value': int | float},
            valrule=lambda value: value > 0)
-def validate(value):
+def validate_positive_number(value):
     return {"valid": True, "type": "positive_number", "value": value}
 
 # Default - invalid
 @validator
-def validate(value):
+def validate_unknown(value):
     return {"valid": False, "type": "unknown", "value": value}
 
 # Use it
@@ -146,7 +146,7 @@ payments = Switcher()
 # Crypto payments over $1000
 @payments(typerule={'method': str, 'amount': int | float},
           valrule=lambda method, amount: method == 'crypto' and amount > 1000)
-def process_payment(method, amount, details):
+def process_crypto_large(method, amount, details):
     return {
         "processor": "crypto_large",
         "amount": amount,
@@ -157,7 +157,7 @@ def process_payment(method, amount, details):
 # Regular crypto payments
 @payments(typerule={'method': str},
           valrule=lambda method, **kw: method == 'crypto')
-def process_payment(method, amount, details):
+def process_crypto_regular(method, amount, details):
     return {
         "processor": "crypto_regular",
         "amount": amount,
@@ -167,7 +167,7 @@ def process_payment(method, amount, details):
 
 # Credit card payments
 @payments(valrule=lambda method, **kw: method == 'credit_card')
-def process_payment(method, amount, details):
+def process_credit_card(method, amount, details):
     return {
         "processor": "credit_card",
         "amount": amount,
@@ -177,7 +177,7 @@ def process_payment(method, amount, details):
 
 # Bank transfer
 @payments(valrule=lambda method, **kw: method == 'bank_transfer')
-def process_payment(method, amount, details):
+def process_bank_transfer(method, amount, details):
     return {
         "processor": "bank_transfer",
         "amount": amount,
@@ -187,7 +187,7 @@ def process_payment(method, amount, details):
 
 # Default - unsupported
 @payments
-def process_payment(method, amount, details):
+def process_unsupported(method, amount, details):
     return {"error": "Unsupported payment method", "method": method}
 
 # Use it
@@ -214,7 +214,7 @@ from smartswitch import Switcher
 order_processor = Switcher()
 
 @order_processor(valrule=lambda state, action: state == 'pending' and action == 'confirm')
-def process_order(state, action, order_id):
+def confirm_order(state, action, order_id):
     return {
         "order_id": order_id,
         "old_state": state,
@@ -223,7 +223,7 @@ def process_order(state, action, order_id):
     }
 
 @order_processor(valrule=lambda state, action: state == 'confirmed' and action == 'ship')
-def process_order(state, action, order_id):
+def ship_order(state, action, order_id):
     return {
         "order_id": order_id,
         "old_state": state,
@@ -232,7 +232,7 @@ def process_order(state, action, order_id):
     }
 
 @order_processor(valrule=lambda state, action: state == 'shipped' and action == 'deliver')
-def process_order(state, action, order_id):
+def deliver_order(state, action, order_id):
     return {
         "order_id": order_id,
         "old_state": state,
@@ -241,7 +241,7 @@ def process_order(state, action, order_id):
     }
 
 @order_processor(valrule=lambda state, action: action == 'cancel')
-def process_order(state, action, order_id):
+def cancel_order(state, action, order_id):
     return {
         "order_id": order_id,
         "old_state": state,
@@ -250,7 +250,7 @@ def process_order(state, action, order_id):
     }
 
 @order_processor
-def process_order(state, action, order_id):
+def handle_invalid_transition(state, action, order_id):
     return {
         "order_id": order_id,
         "error": f"Invalid transition: {state} -> {action}"
@@ -325,25 +325,25 @@ parser = Switcher()
 
 @parser(typerule={'filepath': str},
         valrule=lambda filepath: filepath.endswith('.json'))
-def parse_file(filepath):
+def parse_json(filepath):
     with open(filepath, 'r') as f:
         return {"type": "json", "data": json.load(f)}
 
 @parser(typerule={'filepath': str},
         valrule=lambda filepath: filepath.endswith('.txt'))
-def parse_file(filepath):
+def parse_text(filepath):
     with open(filepath, 'r') as f:
         return {"type": "text", "data": f.read()}
 
 @parser(typerule={'filepath': str},
         valrule=lambda filepath: filepath.endswith('.csv'))
-def parse_file(filepath):
+def parse_csv(filepath):
     with open(filepath, 'r') as f:
         lines = f.readlines()
         return {"type": "csv", "data": [line.strip().split(',') for line in lines]}
 
 @parser
-def parse_file(filepath):
+def parse_unknown(filepath):
     return {"type": "unknown", "error": f"Unsupported file type: {filepath}"}
 
 # Use it (assuming files exist)

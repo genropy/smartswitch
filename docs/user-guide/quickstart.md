@@ -19,12 +19,12 @@ sw = Switcher()
 
 # Register a handler for strings
 @sw(typerule={'name': str})
-def greet(name):
+def greet_by_name(name):
     return f"Hello, {name}!"
 
 # Register a handler for integers
 @sw(typerule={'age': int})
-def greet(age):
+def greet_by_age(age):
     return f"You are {age} years old"
 
 # Use automatic dispatch
@@ -32,7 +32,7 @@ print(sw()(name="Alice"))  # Hello, Alice!
 print(sw()(age=25))        # You are 25 years old
 
 # Or call by name
-handler = sw('greet')
+handler = sw('greet_by_name')
 print(handler(name="Bob"))  # Hello, Bob!
 ```
 
@@ -44,15 +44,15 @@ Type rules dispatch based on the type of arguments:
 sw = Switcher()
 
 @sw(typerule={'data': str})
-def process(data):
+def process_string(data):
     return data.upper()
 
 @sw(typerule={'data': list})
-def process(data):
+def process_list(data):
     return len(data)
 
 @sw(typerule={'data': dict})
-def process(data):
+def process_dict(data):
     return list(data.keys())
 
 # Automatic dispatch
@@ -69,15 +69,15 @@ Value rules add conditions on runtime values:
 sw = Switcher()
 
 @sw(valrule=lambda x: x < 0)
-def handle_number(x):
+def handle_negative(x):
     return "negative"
 
 @sw(valrule=lambda x: x == 0)
-def handle_number(x):
+def handle_zero(x):
     return "zero"
 
 @sw(valrule=lambda x: x > 0)
-def handle_number(x):
+def handle_positive(x):
     return "positive"
 
 # Automatic dispatch
@@ -86,7 +86,7 @@ print(sw()(x=0))   # zero
 print(sw()(x=5))   # positive
 
 # By name
-print(sw('handle_number')(x=10))  # positive
+print(sw('handle_positive')(x=10))  # positive
 ```
 
 ## Combining Type and Value Rules
@@ -125,12 +125,12 @@ sw = Switcher()
 
 # Specific handlers
 @sw(typerule={'data': int})
-def process(data):
+def process_integer(data):
     return f"Integer: {data}"
 
 # Default handler (catches everything else)
 @sw
-def process(data):
+def process_default(data):
     return f"Unknown type: {type(data).__name__}"
 
 print(sw()(data=42))      # Integer: 42
@@ -146,15 +146,15 @@ Handlers can work with multiple parameters:
 sw = Switcher()
 
 @sw(typerule={'a': int, 'b': int})
-def calculate(a, b):
+def add_numbers(a, b):
     return a + b
 
 @sw(typerule={'a': str, 'b': str})
-def calculate(a, b):
+def concat_strings(a, b):
     return a + b  # String concatenation
 
 @sw(typerule={'a': int, 'b': str})
-def calculate(a, b):
+def format_mixed(a, b):
     return f"{a}:{b}"
 
 print(sw()(a=5, b=10))       # 15

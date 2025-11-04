@@ -26,21 +26,21 @@ sw = Switcher()
 
 # Value-based dispatch (more specific - register first!)
 @sw(valrule=lambda data: isinstance(data, int) and data < 0)
-def process(data):
+def process_negative(data):
     return "Negative number"
 
 # Type-based dispatch
 @sw(typerule={'data': str})
-def process(data):
+def process_string(data):
     return f"String: {data}"
 
 @sw(typerule={'data': int})
-def process(data):
+def process_number(data):
     return f"Number: {data}"
 
 # Default handler
 @sw
-def process(data):
+def process_other(data):
     return f"Other: {data}"
 
 # Use automatic dispatch
@@ -49,7 +49,7 @@ print(sw()(data=42))       # Number: 42
 print(sw()(data=-5))       # Negative number
 
 # Or call by name
-handler = sw('process')
+handler = sw('process_string')
 print(handler(data="world"))  # String: world
 ```
 
