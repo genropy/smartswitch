@@ -124,18 +124,47 @@ class Switcher:
 
         # Case 3: @switch(typerule=..., valrule=...) - returns decorator
         if (typerule is not None or valrule is not None):
+            # Detect valrule calling convention
+            valrule_takes_dict = False
+            valrule_needs_unpack = False  # True for **kw style
+            if valrule is not None:
+                valrule_sig = inspect.signature(valrule)
+                params = valrule_sig.parameters
+
+                # Compact dict syntax comes in two forms:
+                # 1. Single positional param named 'kw', 'kwargs', or 'args'
+                #    e.g., lambda kw: kw['mode'] == 'test'
+                #    Call with: valrule(args_dict)
+                # 2. VAR_KEYWORD parameter (**kw)
+                #    e.g., lambda **kw: kw.get('mode') == 'test'
+                #    Call with: valrule(**args_dict)
+
+                positional_params = [name for name, p in params.items()
+                                    if p.kind not in (inspect.Parameter.VAR_KEYWORD,
+                                                     inspect.Parameter.VAR_POSITIONAL)]
+                has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD
+                                     for p in params.values())
+
+                if (len(positional_params) == 1 and
+                    list(positional_params)[0] in ('kw', 'kwargs', 'args')):
+                    valrule_takes_dict = True
+                    valrule_needs_unpack = False
+                elif has_var_keyword and len(positional_params) == 0:
+                    valrule_takes_dict = True
+                    valrule_needs_unpack = True
+
             def decorator(func):
                 # OPTIMIZATION: Cache signature once
                 sig = inspect.signature(func)
                 param_names = list(sig.parameters.keys())
                 self._param_names_cache[func] = param_names
-                
+
                 # OPTIMIZATION: Pre-compile type checks
                 if typerule:
                     type_checks = self._compile_type_checks(typerule, param_names)
                 else:
                     type_checks = None
-                
+
                 # OPTIMIZATION: Optimized matcher - no bind_partial
                 def matches(*a, **kw):
                     # Build args dict manually (much faster than bind_partial)
@@ -152,9 +181,22 @@ class Switcher:
                             if name in args_dict and not checker(args_dict[name]):
                                 return False
 
-                    # Value rule
-                    if valrule and not valrule(**args_dict):
-                        return False
+                    # Value rule - support both calling conventions
+                    if valrule:
+                        if valrule_takes_dict:
+                            # Compact syntax
+                            if valrule_needs_unpack:
+                                # lambda **kw: kw.get('x') > 10
+                                if not valrule(**args_dict):
+                                    return False
+                            else:
+                                # lambda kw: kw['x'] > 10
+                                if not valrule(args_dict):
+                                    return False
+                        else:
+                            # Expanded syntax: lambda x, y: x > 10
+                            if not valrule(**args_dict):
+                                return False
 
                     return True
 

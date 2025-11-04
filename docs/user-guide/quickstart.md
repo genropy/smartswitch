@@ -78,6 +78,24 @@ result = sw()(status='active', user='Alice')
 print(result)  # → "Processing active user: Alice"
 ```
 
+**Alternative: Compact lambda syntax**
+
+You can also use a compact dict-style lambda for complex conditions:
+
+```python
+sw = Switcher()
+
+@sw(valrule=lambda kw: kw['status'] == 'active' and kw['user'].startswith('A'))
+def handle_special(status, user):
+    return f"Special processing for {user}"
+
+@sw(valrule=lambda kw: kw['status'] == 'active')
+def handle_active(status, user):
+    return f"Processing active user: {user}"
+```
+
+This is useful when you need to check multiple parameters in one condition.
+
 ### 4. Dispatch on Types
 
 **Your situation**: Different handling for different data types.

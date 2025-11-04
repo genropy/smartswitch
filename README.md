@@ -156,6 +156,14 @@ def handle_default(user_type, reason):
 users()(user_type='to_delete', reason='no_payment')
 ```
 
+**Tip**: For multi-parameter conditions, you can use compact dict-style lambda:
+
+```python
+@users(valrule=lambda kw: kw['user_type'] == 'to_delete' and kw['reason'] == 'no_payment')
+def remove_user(user_type, reason):
+    pass
+```
+
 ### 4. Type-Based Dispatch
 
 **Problem**: Handle different data types differently.

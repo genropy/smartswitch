@@ -226,6 +226,96 @@ class TestValueRules:
         assert sw()(x=-10) == "other"
 
 
+class TestCompactLambdaSyntax:
+    """Test compact lambda syntax with dict parameter."""
+
+    def test_compact_lambda_single_param(self):
+        """Test lambda kw: kw['x'] syntax."""
+        sw = Switcher()
+
+        @sw(valrule=lambda kw: kw['mode'] == 'test')
+        def handle_test(mode):
+            return "test mode"
+
+        @sw(valrule=lambda kw: kw['mode'] == 'prod')
+        def handle_prod(mode):
+            return "prod mode"
+
+        @sw
+        def handle_default(mode):
+            return "default"
+
+        assert sw()(mode='test') == "test mode"
+        assert sw()(mode='prod') == "prod mode"
+        assert sw()(mode='other') == "default"
+
+    def test_compact_lambda_multiple_params(self):
+        """Test lambda kw: with multiple parameter conditions."""
+        sw = Switcher()
+
+        @sw(valrule=lambda kw: kw['mode'] == 'xxx' and kw['height'] > 30)
+        def handle_high(mode, height):
+            return f"High: {height}"
+
+        @sw(valrule=lambda kw: kw['height'] <= 30)
+        def handle_low(mode, height):
+            return f"Low: {height}"
+
+        assert sw()(mode='xxx', height=50) == "High: 50"
+        assert sw()(mode='xxx', height=20) == "Low: 20"
+
+    def test_compact_lambda_with_kw_get(self):
+        """Test lambda kw: kw.get() syntax."""
+        sw = Switcher()
+
+        @sw(valrule=lambda kw: kw.get('status') == 'active')
+        def handle_active(status):
+            return "active"
+
+        @sw
+        def handle_default(status):
+            return "default"
+
+        assert sw()(status='active') == "active"
+        assert sw()(status='other') == "default"
+
+    def test_mixed_compact_and_expanded_syntax(self):
+        """Test mixing compact and expanded lambda syntax."""
+        sw = Switcher()
+
+        @sw(valrule=lambda kw: kw['x'] > 100)  # Compact
+        def handle_large(x):
+            return "large"
+
+        @sw(valrule=lambda x: x > 50)  # Expanded
+        def handle_medium(x):
+            return "medium"
+
+        @sw(valrule=lambda kw: kw['x'] > 0)  # Compact
+        def handle_small(x):
+            return "small"
+
+        assert sw()(x=150) == "large"
+        assert sw()(x=75) == "medium"
+        assert sw()(x=25) == "small"
+
+    def test_var_keyword_lambda_syntax(self):
+        """Test lambda **kw: syntax (VAR_KEYWORD)."""
+        sw = Switcher()
+
+        @sw(valrule=lambda **kw: kw.get('y', 0) > 5)
+        def handle_with_y(x, y=0):
+            return f"y={y}"
+
+        @sw
+        def handle_default(x, y=0):
+            return "default"
+
+        assert sw()(x=1, y=10) == "y=10"
+        assert sw()(x=1, y=3) == "default"
+        assert sw()(x=1) == "default"
+
+
 class TestCombinedRules:
     """Test combining type and value rules."""
 

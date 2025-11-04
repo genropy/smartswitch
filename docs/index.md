@@ -162,6 +162,16 @@ result = users()(user_type='to_delete', reason='no_payment')
 - Easy to add new cases without touching existing code
 - No deep nesting
 
+**Compact lambda syntax**: For complex multi-parameter conditions, you can use dict-style lambda:
+
+```python
+@users(valrule=lambda kw: kw['user_type'] == 'to_delete' and kw['reason'] == 'no_payment')
+def remove_user(user_type, reason):
+    return "User removed"
+```
+
+This allows checking multiple parameters in a single compact expression.
+
 ### 4. Type-Based Routing
 
 **The Problem**: Different handling for different data types.
