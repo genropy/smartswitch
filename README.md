@@ -17,6 +17,9 @@
 
 ---
 
+> 🐦 **Part of the [We-Birds](https://github.com/genropy/we-birds) family**
+> *Developer tools that fly together*
+
 Replace messy if-elif chains and duplicated logic with clean, maintainable function registries.
 
 ## Installation
