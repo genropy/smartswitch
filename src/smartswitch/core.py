@@ -5,8 +5,8 @@ Optimized version with ~3x performance improvement over naive implementation.
 """
 
 import inspect
-from typing import Any, get_origin, get_args, Union
 from functools import partial
+from typing import Any, Union, get_args, get_origin
 
 
 class BoundSwitcher:
@@ -56,7 +56,7 @@ class Switcher:
     def __init__(self, name: str = "default"):
         """
         Initialize a new Switcher.
-        
+
         Args:
             name: Optional name for this switch (for debugging)
         """
@@ -204,7 +204,7 @@ class Switcher:
                 # Register by name so it can be retrieved with sw('name')
                 self._handlers[func.__name__] = func
                 return func
-            
+
             return decorator
 
         # Case 4: switch() - invoker
@@ -245,11 +245,11 @@ class Switcher:
     def _compile_type_checks(self, typerule, param_names):
         """
         Pre-compile type checkers for faster runtime evaluation.
-        
+
         Args:
             typerule: Dict mapping parameter names to types
             param_names: List of parameter names from function signature
-            
+
         Returns:
             List of (param_name, checker_function) tuples
         """
@@ -257,35 +257,35 @@ class Switcher:
         for name, hint in typerule.items():
             if name not in param_names:
                 continue
-            
+
             # Create optimized checker for this type
             checker = self._make_type_checker(hint)
             checks.append((name, checker))
-        
+
         return checks
 
     def _make_type_checker(self, hint):
         """
         Create an optimized type checking function.
-        
+
         Args:
             hint: Type hint to check against
-            
+
         Returns:
             Function that takes a value and returns bool
         """
         # Fast path for Any
         if hint is Any:
             return lambda val: True
-        
+
         origin = get_origin(hint)
-        
+
         # Union types (e.g., int | str)
         if origin is Union:
             args = get_args(hint)
             # Pre-compile checkers for each union member
             checkers = [self._make_type_checker(t) for t in args]
             return lambda val: any(c(val) for c in checkers)
-        
+
         # Simple type check
         return lambda val: isinstance(val, hint)
