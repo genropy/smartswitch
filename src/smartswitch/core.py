@@ -15,7 +15,7 @@ class BoundSwitcher:
     Created when accessing a Switcher instance as a class attribute.
     """
 
-    __slots__ = ('_switcher', '_instance')
+    __slots__ = ("_switcher", "_instance")
 
     def __init__(self, switcher, instance):
         self._switcher = switcher
@@ -51,7 +51,7 @@ class Switcher:
     - __slots__ for reduced memory overhead
     """
 
-    __slots__ = ('name', '_handlers', '_rules', '_default_handler', '_param_names_cache')
+    __slots__ = ("name", "_handlers", "_rules", "_default_handler", "_param_names_cache")
 
     def __init__(self, name: str = "default"):
         """
@@ -101,6 +101,7 @@ class Switcher:
             # If handler exists, check if being used as decorator or lookup
             if arg in self._handlers:
                 handler = self._handlers[arg]
+
                 # Create a wrapper that can be used both ways
                 class HandlerOrDecorator:
                     def __call__(self, *args, **kwargs):
@@ -110,20 +111,23 @@ class Switcher:
                             # Check if it looks like it's being used as decorator
                             # (single callable argument, no other args)
                             import inspect
+
                             if inspect.isfunction(args[0]) or inspect.ismethod(args[0]):
                                 raise ValueError(f"Alias '{arg}' is already registered")
                         # Normal function call
                         return handler(*args, **kwargs)
+
                 return HandlerOrDecorator()
 
             # Not found, return decorator for registration
             def decorator(func):
                 self._handlers[arg] = func
                 return func
+
             return decorator
 
         # Case 3: @switch(typerule=..., valrule=...) - returns decorator
-        if (typerule is not None or valrule is not None):
+        if typerule is not None or valrule is not None:
             # Detect valrule calling convention
             valrule_takes_dict = False
             valrule_needs_unpack = False  # True for **kw style
@@ -139,14 +143,21 @@ class Switcher:
                 #    e.g., lambda **kw: kw.get('mode') == 'test'
                 #    Call with: valrule(**args_dict)
 
-                positional_params = [name for name, p in params.items()
-                                    if p.kind not in (inspect.Parameter.VAR_KEYWORD,
-                                                     inspect.Parameter.VAR_POSITIONAL)]
-                has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD
-                                     for p in params.values())
+                positional_params = [
+                    name
+                    for name, p in params.items()
+                    if p.kind
+                    not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
+                ]
+                has_var_keyword = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+                )
 
-                if (len(positional_params) == 1 and
-                    list(positional_params)[0] in ('kw', 'kwargs', 'args')):
+                if len(positional_params) == 1 and list(positional_params)[0] in (
+                    "kw",
+                    "kwargs",
+                    "args",
+                ):
                     valrule_takes_dict = True
                     valrule_needs_unpack = False
                 elif has_var_keyword and len(positional_params) == 0:
@@ -209,6 +220,7 @@ class Switcher:
 
         # Case 4: switch() - invoker
         if arg is None:
+
             def invoker(*a, **kw):
                 # Check specific rules first
                 for cond, func in self._rules:
@@ -218,6 +230,7 @@ class Switcher:
                 if self._default_handler:
                     return self._default_handler(*a, **kw)
                 raise ValueError(f"No rule matched for {a}, {kw}")
+
             return invoker
 
         raise TypeError("Switcher.__call__ expects callable, str, or None")
