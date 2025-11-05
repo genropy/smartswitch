@@ -1,22 +1,21 @@
 <div align="center">
-  <img src="docs/assets/logo.png" alt="SmartSwitch Logo" width="200"/>
 
-  # SmartSwitch 🧠
+<img src="docs/assets/logo.png" alt="SmartSwitch Logo" width="200"/>
 
-  **Intelligent rule-based function dispatch for Python**
+# SmartSwitch
 
-  [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-  [![PyPI version](https://img.shields.io/pypi/v/smartswitch.svg)](https://pypi.org/project/smartswitch/)
-  [![PyPI Downloads](https://img.shields.io/pypi/dm/smartswitch.svg)](https://pypi.org/project/smartswitch/)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-  [![Development Status](https://img.shields.io/badge/status-beta-orange.svg)](https://pypi.org/project/smartswitch/)
+**Intelligent rule-based function dispatch for Python**
 
-  [![Tests](https://github.com/genropy/smartswitch/workflows/Tests/badge.svg)](https://github.com/genropy/smartswitch/actions)
-  [![codecov](https://codecov.io/gh/genropy/smartswitch/branch/main/graph/badge.svg)](https://codecov.io/gh/genropy/smartswitch)
-  [![Documentation](https://readthedocs.org/projects/smartswitch/badge/?version=latest)](https://smartswitch.readthedocs.io/en/latest/)
-  [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-  [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 </div>
+
+[![PyPI version](https://img.shields.io/pypi/v/smartswitch.svg)](https://pypi.org/project/smartswitch/)
+[![Tests](https://github.com/genropy/smartswitch/actions/workflows/test.yml/badge.svg)](https://github.com/genropy/smartswitch/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/genropy/smartswitch/branch/main/graph/badge.svg)](https://codecov.io/gh/genropy/smartswitch)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://readthedocs.org/projects/smartswitch/badge/?version=latest)](https://smartswitch.readthedocs.io/)
+
+---
 
 Replace messy if-elif chains and duplicated logic with clean, maintainable function registries.
 
