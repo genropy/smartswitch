@@ -1,0 +1,100 @@
+name: Documentation Coverage
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  doc-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          pip install -e .
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ --cov=smartswitch --cov-report=json --cov-report=term-missing
+
+      - name: Check test coverage threshold
+        run: |
+          COVERAGE=$(python -c "import json; data=json.load(open('coverage.json')); print(int(data['totals']['percent_covered']))")
+          echo "Test coverage: $COVERAGE%"
+          if [ $COVERAGE -lt 90 ]; then
+            echo "❌ Test coverage below 90% threshold"
+            exit 1
+          fi
+          echo "✅ Test coverage above 90%"
+
+      - name: Analyze documentation coverage
+        run: |
+          python scripts/check_doc_coverage.py --threshold 80 --json-output doc-coverage.json
+
+      - name: Generate HTML report
+        if: always()
+        run: |
+          python scripts/generate_doc_coverage_html.py
+
+      - name: Upload doc coverage report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: doc-coverage-report
+          path: htmlcov/doc-coverage.html
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Read doc coverage results
+            let docCoverage = 'N/A';
+            try {
+              const data = JSON.parse(fs.readFileSync('doc-coverage.json', 'utf8'));
+              docCoverage = `${data.coverage_percent}%`;
+            } catch (e) {
+              console.log('Could not read doc coverage');
+            }
+
+            // Read test coverage
+            let testCoverage = 'N/A';
+            try {
+              const data = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
+              testCoverage = `${Math.round(data.totals.percent_covered)}%`;
+            } catch (e) {
+              console.log('Could not read test coverage');
+            }
+
+            // Post comment
+            const comment = `## 📊 Coverage Report
+
+            | Type | Coverage | Status |
+            |------|----------|--------|
+            | Tests | ${testCoverage} | ${testCoverage >= 90 ? '✅' : '❌'} |
+            | Documentation | ${docCoverage} | ${docCoverage >= 80 ? '✅' : '⚠️'} |
+
+            [View detailed doc coverage report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

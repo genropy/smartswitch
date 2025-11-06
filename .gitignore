@@ -144,3 +144,13 @@ cython_debug/
 
 # macOS
 .DS_Store
+
+# Temporary files
+temp/
+
+# Generated doc coverage reports
+doc-coverage-report.md
+doc-coverage.json
+
+# Local scripts (project-specific)
+scripts/

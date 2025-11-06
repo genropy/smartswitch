@@ -48,15 +48,41 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - User Guide:
+  - Getting Started:
     - Installation: user-guide/installation.md
     - Quick Start: user-guide/quickstart.md
     - Basic Usage: user-guide/basic.md
+  - Guides:
+    - Type Rules: guide/typerules.md
+    - Value Rules: guide/valrules.md
+    - Named Handlers: guide/named-handlers.md
+    - Best Practices: guide/best-practices.md
   - Examples:
     - Overview: examples/index.md
+  - API Reference:
+    - Switcher: api/switcher.md
 
 plugins:
   - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
+            docstring_section_style: spacy
+          inventories:
+            - https://docs.python.org/3/objects.inv
+      enable_inventory: true
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
 
 extra:
   social:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartswitch"
-version = "0.1.0"
+version = "0.2.0"
 description = "Intelligent rule-based function dispatch for Python"
 authors = [
     {name = "Giovanni Porcari", email = "softwell@softwell.it"},

@@ -468,5 +468,5 @@ result = sw()(5, y=10)  # Mixed - works!
 ## Next Steps
 
 - Explore [Examples](../examples/index.md) for real-world use cases
-- Learn about the [Descriptor Protocol](advanced/descriptors.md) for class-based usage (coming soon)
-- See [Performance Tips](advanced/performance.md) for optimization strategies (coming soon)
+- Check the [Best Practices Guide](../guide/best-practices.md) for production patterns
+- See the [API Reference](../api/switcher.md) for complete technical documentation

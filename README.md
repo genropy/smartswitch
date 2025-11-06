@@ -280,15 +280,39 @@ def process_generic(method, amount, details):
 - Pure type dispatch → use `functools.singledispatch`
 - Very high-performance code (< 10μs functions called millions of times)
 
-## Features
+## Key Features
 
-- 🎯 **Value-based dispatch**: Match on runtime values
-- 📦 **Named handler registry**: Look up by name or alias
-- 🔤 **Prefix-based auto-naming**: Convention-driven handler registration
-- 🔢 **Type-based dispatch**: Match on argument types
-- 🧩 **Modular**: Each handler is separate and testable
-- ✨ **Clean API**: Pythonic decorators
+### Core Dispatch Mechanisms
+
+- 🔢 **[Type-based dispatch](https://smartswitch.readthedocs.io/guide/typerules/)**: Route by argument types (`int`, `str`, custom classes, unions)
+- 🎯 **[Value-based dispatch](https://smartswitch.readthedocs.io/guide/valrules/)**: Match on runtime values with lambda rules
+- 🔗 **[Combined rules](https://smartswitch.readthedocs.io/guide/best-practices/)**: Use type AND value rules together for precise routing
+
+### Handler Management
+
+- 📦 **[Named handler access](https://smartswitch.readthedocs.io/guide/named-handlers/)**: Retrieve and call handlers by name
+- 🏷️ **[Custom aliases](https://smartswitch.readthedocs.io/guide/named-handlers/#custom-aliases)**: Register handlers with user-friendly names
+- 🔤 **[Prefix-based auto-naming](https://smartswitch.readthedocs.io/guide/named-handlers/#prefix-based-auto-naming)**: Convention-driven handler registration (NEW in v0.1.0)
+
+### Developer Experience
+
+- 🧩 **Modular & testable**: Each handler is an independent function
+- ✨ **Clean API**: Pythonic decorators with zero boilerplate
 - 🚀 **Efficient**: Optimized with caching (~1-2μs overhead)
+- 🛡️ **Type-safe**: Full type annotation support
+
+## Documentation
+
+📚 **Full documentation**: [smartswitch.readthedocs.io](https://smartswitch.readthedocs.io/)
+
+**Guides:**
+- [Type Rules](https://smartswitch.readthedocs.io/guide/typerules/) - Dispatch based on types
+- [Value Rules](https://smartswitch.readthedocs.io/guide/valrules/) - Dispatch based on runtime values
+- [Named Handlers](https://smartswitch.readthedocs.io/guide/named-handlers/) - Direct handler access
+- [Best Practices](https://smartswitch.readthedocs.io/guide/best-practices/) - Production patterns
+- [API Reference](https://smartswitch.readthedocs.io/api/switcher/) - Complete API docs
+
+**All examples in documentation are tested** - They come directly from our test suite with 95% coverage.
 
 ## Performance
 
@@ -299,6 +323,8 @@ Function time: 50ms (API call)
 Dispatch overhead: 0.002ms
 Impact: 0.004% ✅
 ```
+
+See [Performance Best Practices](https://smartswitch.readthedocs.io/guide/best-practices/#performance-best-practices) for more details.
 
 ## License
 
