@@ -70,6 +70,20 @@ smartswitch/
 - `temp/.gitignore` ignores all files except itself
 - Never commit temporary files to repository
 
+## Documentation Standards
+
+**SmartSwitch follows We-Birds documentation standards:**
+
+- **Test-First Documentation**: `~/.genro/standards/documentation-standards.md`
+- **Architecture & Diagrams**: `~/.genro/standards/documentation-architecture-standards.md`
+
+**Key Requirements**:
+- All docs must be derived from tests (no hallucination)
+- Architecture page MUST exist at `docs/appendix/architecture.md`
+- Architecture page MUST start with Mermaid diagrams (visual-first)
+- MkDocs MUST have Mermaid support and `toc.integrate`
+- Tech reviews generate `tech_report/tech_report_NNN.md` (private)
+
 ## Development Guidelines
 
 ### Core Principles

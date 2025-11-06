@@ -1,0 +1,117 @@
+# Technical Code Review
+
+Perform a comprehensive technical review of the project codebase and generate a detailed report.
+
+## Review Criteria
+
+Analyze the codebase according to these 8 criteria:
+
+### 1. Code Organization
+- Check project structure and file organization
+- Verify logical separation of concerns
+- Assess module/package boundaries
+
+### 2. Function Length & Complexity
+- Identify functions/methods that are too long (>50 lines)
+- Detect deeply nested code (>4 levels of indentation)
+- Flag complex conditional logic
+
+### 3. Comments & Naming
+- Verify comments are accurate and helpful
+- Check variable/function names are meaningful
+- Identify misleading or outdated comments
+
+### 4. Excellent Code Examples 🌟
+- Highlight particularly well-written code
+- Identify exemplary patterns and practices
+- Note code worth using as reference
+
+### 5. Architecture Issues 🚨
+- Identify inflexible or hard-to-maintain designs
+- Detect tight coupling or circular dependencies
+- Flag architectural anti-patterns
+
+### 6. Usage of Our Tools
+- Check if we're using our own tools (smartswitch, gtext, tryfly, etc.)
+- Suggest where our tools could be applied
+- Identify opportunities to "eat our own dog food"
+
+### 7. Thread Safety & Async Issues ⚡
+- Identify potential race conditions
+- Check for proper async/await usage
+- Flag missing thread synchronization
+
+### 8. Suggested Improvements 💭
+- Provide concrete refactoring suggestions
+- Recommend performance optimizations
+- Suggest better patterns or practices
+
+## Report Generation
+
+1. **Analyze** all Python files in `src/` directory
+2. **Generate** markdown report with findings
+3. **Save** to `tech_report/tech_report_NNN.md` (auto-increment number)
+4. **Summarize** key findings and overall score
+
+## Report Format
+
+```markdown
+# Technical Review Report #NNN
+**Project**: [project-name]
+**Date**: [YYYY-MM-DD]
+**Reviewed Files**: N
+**Total Lines**: N,NNN
+
+## 1. Code Organization [✅/⚠️/❌]
+[Findings...]
+
+## 2. Function Length & Complexity [✅/⚠️/❌]
+[Findings...]
+
+## 3. Comments & Naming [✅/⚠️/❌]
+[Findings...]
+
+## 4. Excellent Code Examples 🌟
+[Findings...]
+
+## 5. Architecture Issues 🚨
+[Findings...]
+
+## 6. Usage of Our Tools 💡
+[Findings...]
+
+## 7. Thread Safety & Async Issues ⚡
+[Findings...]
+
+## 8. Suggested Improvements 💭
+[Findings...]
+
+## Summary
+**Overall Score**: X/10
+**Critical Issues**: N
+**Warnings**: N
+**Recommendations**: N
+```
+
+## Instructions for Claude
+
+When user types `/techreview`:
+
+1. **Scan codebase**: Read all Python files in `src/` (and `tests/` if relevant)
+2. **Analyze against criteria**: Go through each of the 8 criteria systematically
+3. **Be critical but constructive**: Point out issues but also highlight good practices
+4. **Generate report**: Create numbered report in `tech_report/` directory
+5. **Summarize**: Provide brief summary of most important findings
+
+**Important**:
+- Focus on **production code** (src/), not build/config files
+- Be **specific**: Include file:line references for issues
+- Be **balanced**: Highlight both problems and excellent code
+- Be **actionable**: Suggest concrete improvements
+- **Check our own tools usage**: This is a "genro" project, we should use genro tools!
+
+## Scope
+
+- **Default**: All files in `src/` directory
+- **Include tests**: If explicitly asked
+- **Exclude**: Build artifacts, dependencies, generated code

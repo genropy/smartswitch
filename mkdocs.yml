@@ -24,10 +24,10 @@ theme:
   features:
     - navigation.instant
     - navigation.tracking
-    - navigation.tabs
     - navigation.sections
     - navigation.expand
     - navigation.top
+    - toc.integrate
     - search.suggest
     - search.highlight
     - content.code.copy
@@ -37,7 +37,11 @@ markdown_extensions:
       anchor_linenums: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - admonition
   - pymdownx.details
   - pymdownx.tabbed:
@@ -52,7 +56,7 @@ nav:
     - Installation: user-guide/installation.md
     - Quick Start: user-guide/quickstart.md
     - Basic Usage: user-guide/basic.md
-  - Guides:
+  - User Guide:
     - Type Rules: guide/typerules.md
     - Value Rules: guide/valrules.md
     - Named Handlers: guide/named-handlers.md
@@ -61,6 +65,8 @@ nav:
     - Overview: examples/index.md
   - API Reference:
     - Switcher: api/switcher.md
+  - Advanced:
+    - Architecture: appendix/architecture.md
 
 plugins:
   - search
