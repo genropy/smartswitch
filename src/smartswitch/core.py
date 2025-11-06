@@ -51,9 +51,19 @@ class Switcher:
     - __slots__ for reduced memory overhead
     """
 
-    __slots__ = ("name", "description", "prefix", "_handlers", "_rules", "_default_handler", "_param_names_cache")
+    __slots__ = (
+        "name",
+        "description",
+        "prefix",
+        "_handlers",
+        "_rules",
+        "_default_handler",
+        "_param_names_cache",
+    )
 
-    def __init__(self, name: str = "default", description: str | None = None, prefix: str | None = None):
+    def __init__(
+        self, name: str = "default", description: str | None = None, prefix: str | None = None
+    ):
         """
         Initialize a new Switcher.
 
@@ -94,7 +104,7 @@ class Switcher:
         if callable(arg) and typerule is None and valrule is None:
             # Derive handler name (with optional prefix stripping)
             if self.prefix and arg.__name__.startswith(self.prefix):
-                handler_name = arg.__name__[len(self.prefix):]
+                handler_name = arg.__name__[len(self.prefix) :]
             else:
                 handler_name = arg.__name__
 
