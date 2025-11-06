@@ -17,9 +17,6 @@
 
 ---
 
-> 📚 **Part of the [genro-libs](https://github.com/softwellsrl/meta-genro-libs) family**
-> *General-purpose Python developer tools*
-
 Replace messy if-elif chains and duplicated logic with clean, maintainable function registries.
 
 ## Installation
@@ -355,3 +352,9 @@ MIT
 ## Contributing
 
 Contributions welcome! Please feel free to submit a Pull Request.
+
+---
+
+<div align="center">
+<sub>✨ Part of the genro-libs family of developer tools ✨</sub>
+</div>
