@@ -81,7 +81,13 @@ class Switcher:
         self._default_handler = None  # default catch-all handler
         self._param_names_cache = {}  # function -> param names cache
 
-    def __call__(self, arg=None, *, typerule=None, valrule=None):
+    def __call__(
+        self,
+        arg: Any = None,
+        *,
+        typerule: dict[str, type] | None = None,
+        valrule: Any = None,
+    ) -> Any:
         """
         Multi-purpose call method supporting different invocation patterns.
 
@@ -258,7 +264,7 @@ class Switcher:
 
         raise TypeError("Switcher.__call__ expects callable, str, or None")
 
-    def __get__(self, instance, owner=None):
+    def __get__(self, instance: Any, owner: type | None = None) -> "Switcher | BoundSwitcher":
         """
         Descriptor protocol support for automatic method binding.
 
