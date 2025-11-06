@@ -67,6 +67,7 @@ nav:
     - Switcher: api/switcher.md
   - Advanced:
     - Architecture: appendix/architecture.md
+    - SmartSwitch vs Match: appendix/vs-match.md
 
 plugins:
   - search
