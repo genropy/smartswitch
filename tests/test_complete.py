@@ -758,3 +758,144 @@ class TestRealWorldScenarios:
         assert validator()(value=75) == "percentage"
         assert validator()(value="just text") == "invalid"
         assert validator()(value=150) == "invalid"
+
+
+class TestPrefixBasedAutoNaming:
+    """Test prefix-based automatic handler name derivation."""
+
+    def test_prefix_basic_stripping(self):
+        """Test basic prefix stripping from function names."""
+        sw = Switcher(prefix='handle_')
+
+        @sw
+        def handle_foo(x):
+            return f"foo: {x}"
+
+        @sw
+        def handle_bar(x):
+            return f"bar: {x}"
+
+        # Handlers registered with stripped names
+        assert 'foo' in sw._handlers
+        assert 'bar' in sw._handlers
+
+        # Can access by derived names
+        assert sw('foo')(x=5) == "foo: 5"
+        assert sw('bar')(x=10) == "bar: 10"
+
+    def test_prefix_no_match_uses_full_name(self):
+        """Test function without prefix uses full name."""
+        sw = Switcher(prefix='handle_')
+
+        @sw
+        def other_name(x):
+            return f"other: {x}"
+
+        # Registered with full name (no prefix match)
+        assert 'other_name' in sw._handlers
+        assert sw('other_name')(x=5) == "other: 5"
+
+    def test_prefix_explicit_name_override(self):
+        """Test explicit name overrides prefix stripping."""
+        sw = Switcher(prefix='handle_')
+
+        @sw('custom_name')
+        def handle_foo(x):
+            return x
+
+        # Registered as 'custom_name', not 'foo'
+        assert 'custom_name' in sw._handlers
+        assert 'foo' not in sw._handlers
+        assert sw('custom_name')(x=5) == 5
+
+    def test_prefix_duplicate_detection(self):
+        """Test duplicate handler names are detected."""
+        sw = Switcher(prefix='protocol_')
+
+        @sw
+        def protocol_s3(x):
+            return "first"
+
+        # Try to register with explicit name that conflicts
+        with pytest.raises(ValueError, match="Alias 's3' is already registered"):
+            @sw('s3')
+            def other_handler(x):
+                return "second"
+
+    def test_no_prefix_backward_compatibility(self):
+        """Test backward compatibility when no prefix is set."""
+        sw = Switcher()  # No prefix
+
+        @sw
+        def my_func(x):
+            return x
+
+        # Uses function name as-is
+        assert 'my_func' in sw._handlers
+        assert sw('my_func')(x=5) == 5
+
+    def test_prefix_with_description(self):
+        """Test using prefix together with description."""
+        sw = Switcher(
+            name='protocol',
+            description='Storage protocol dispatcher',
+            prefix='protocol_'
+        )
+
+        @sw
+        def protocol_s3_aws(x):
+            return "s3_aws"
+
+        @sw
+        def protocol_gcs(x):
+            return "gcs"
+
+        assert sw.description == 'Storage protocol dispatcher'
+        assert 's3_aws' in sw._handlers
+        assert 'gcs' in sw._handlers
+        assert sw('s3_aws')(x=1) == "s3_aws"
+        assert sw('gcs')(x=1) == "gcs"
+
+    def test_prefix_with_typerule(self):
+        """Test prefix works with type rules."""
+        sw = Switcher(prefix='cmd_')
+
+        @sw(typerule={'x': int})
+        def cmd_add(x):
+            return f"add: {x}"
+
+        @sw(typerule={'x': str})
+        def cmd_delete(x):
+            return f"delete: {x}"
+
+        # Named registration works with rules
+        assert 'cmd_add' in sw._handlers
+        assert 'cmd_delete' in sw._handlers
+
+        # Can access by name
+        assert sw('cmd_add')(x=5) == "add: 5"
+        assert sw('cmd_delete')(x="item") == "delete: item"
+
+    def test_prefix_empty_string(self):
+        """Test empty string prefix behaves like no prefix."""
+        sw = Switcher(prefix='')
+
+        @sw
+        def my_handler(x):
+            return x
+
+        # Empty prefix = no stripping
+        assert 'my_handler' in sw._handlers
+        assert sw('my_handler')(x=5) == 5
+
+    def test_prefix_longer_than_name(self):
+        """Test prefix longer than function name."""
+        sw = Switcher(prefix='very_long_prefix_')
+
+        @sw
+        def short(x):
+            return x
+
+        # No match, uses full name
+        assert 'short' in sw._handlers
+        assert sw('short')(x=5) == 5

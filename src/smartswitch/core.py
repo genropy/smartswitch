@@ -51,16 +51,21 @@ class Switcher:
     - __slots__ for reduced memory overhead
     """
 
-    __slots__ = ("name", "_handlers", "_rules", "_default_handler", "_param_names_cache")
+    __slots__ = ("name", "description", "prefix", "_handlers", "_rules", "_default_handler", "_param_names_cache")
 
-    def __init__(self, name: str = "default"):
+    def __init__(self, name: str = "default", description: str | None = None, prefix: str | None = None):
         """
         Initialize a new Switcher.
 
         Args:
             name: Optional name for this switch (for debugging)
+            description: Optional description for documentation/introspection
+            prefix: If set, auto-derive handler names by removing this prefix
+                    from decorated function names
         """
         self.name = name
+        self.description = description
+        self.prefix = prefix
         self._handlers = {}  # name -> function mapping
         self._rules = []  # list of (matcher, function) tuples
         self._default_handler = None  # default catch-all handler
@@ -87,12 +92,20 @@ class Switcher:
         """
         # Case 1: @switch (decorator without parameters - default handler)
         if callable(arg) and typerule is None and valrule is None:
-            if arg.__name__ in self._handlers:
-                existing = self._handlers[arg.__name__]
+            # Derive handler name (with optional prefix stripping)
+            if self.prefix and arg.__name__.startswith(self.prefix):
+                handler_name = arg.__name__[len(self.prefix):]
+            else:
+                handler_name = arg.__name__
+
+            # Check for duplicates
+            if handler_name in self._handlers:
+                existing = self._handlers[handler_name]
                 raise ValueError(
-                    f"Handler '{arg.__name__}' already taken by function '{existing.__name__}'"
+                    f"Handler '{handler_name}' already taken by function '{existing.__name__}'"
                 )
-            self._handlers[arg.__name__] = arg
+
+            self._handlers[handler_name] = arg
             self._default_handler = arg
             return arg
 

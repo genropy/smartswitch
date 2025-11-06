@@ -215,7 +215,7 @@ git commit -m "Initial commit: SmartSwitch v0.1.0"
 
 # Push
 git branch -M main
-git remote add origin https://github.com/softwell-it/smartswitch.git
+git remote add origin https://github.com/genropy/smartswitch.git
 git push -u origin main
 ```
 

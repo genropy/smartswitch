@@ -17,8 +17,8 @@
 
 ---
 
-> 🐦 **Part of the [We-Birds](https://github.com/genropy/we-birds) family**
-> *Developer tools that fly together*
+> 📚 **Part of the [genro-libs](https://github.com/softwellsrl/meta-genro-libs) family**
+> *General-purpose Python developer tools*
 
 Replace messy if-elif chains and duplicated logic with clean, maintainable function registries.
 
@@ -106,6 +106,24 @@ def remove_cache():
 
 # Call with alias
 ops('reset')()
+```
+
+**Or use prefix-based auto-naming** for convention-driven naming:
+```python
+# Set a prefix to auto-derive handler names
+protocols = Switcher(prefix='protocol_')
+
+@protocols  # Auto-registers as 's3_aws'
+def protocol_s3_aws():
+    return {"type": "s3", "region": "us-east-1"}
+
+@protocols  # Auto-registers as 'gcs'
+def protocol_gcs():
+    return {"type": "gcs", "bucket": "data"}
+
+# Call by auto-derived names
+protocols('s3_aws')()
+protocols('gcs')()
 ```
 
 ### 3. Value-Based Dispatch
@@ -266,6 +284,7 @@ def process_generic(method, amount, details):
 
 - 🎯 **Value-based dispatch**: Match on runtime values
 - 📦 **Named handler registry**: Look up by name or alias
+- 🔤 **Prefix-based auto-naming**: Convention-driven handler registration
 - 🔢 **Type-based dispatch**: Match on argument types
 - 🧩 **Modular**: Each handler is separate and testable
 - ✨ **Clean API**: Pythonic decorators

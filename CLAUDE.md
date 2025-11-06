@@ -21,12 +21,10 @@ The library is optimized for real-world use cases where dispatch overhead is neg
 
 ## Repository Information
 
-- **Owner**: softwell-it
-- **Repository**: https://github.com/softwell-it/smartswitch
+- **Owner**: genropy
+- **Repository**: https://github.com/genropy/smartswitch
 - **Documentation**: https://smartswitch.readthedocs.io (when live)
 - **License**: MIT
-
-**Note**: The pyproject.toml currently references `genropy/smartswitch` but should be `softwell-it/smartswitch`.
 
 ## Project Structure
 
@@ -129,10 +127,6 @@ The project has complete CI/CD configured:
 2. Configuration already in `.readthedocs.yaml`
 
 ## Known Issues and TODOs
-
-### Issues to Fix
-
-1. **Repository URL mismatch**: pyproject.toml references `genropy/smartswitch` but should be `softwell-it/smartswitch`
 
 ### Documentation to Complete
 
