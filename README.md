@@ -326,6 +326,28 @@ Impact: 0.004% ✅
 
 See [Performance Best Practices](https://smartswitch.readthedocs.io/guide/best-practices/#performance-best-practices) for more details.
 
+## Thread Safety
+
+SmartSwitch is designed for typical Python usage patterns:
+
+- **✅ Handler dispatch** (calling `sw()(args)`) is **fully thread-safe** - uses read-only operations
+- **⚠️ Decorator registration** should be done at **module import time** (single-threaded)
+
+**Recommended usage**:
+```python
+# Module level - executed once at import (safe)
+switch = Switcher()
+
+@switch(typerule={'x': int})
+def handle_int(x):
+    return x * 2
+
+# Runtime - called many times (thread-safe)
+result = switch()(x=42)
+```
+
+For advanced scenarios requiring runtime registration in multi-threaded applications, external synchronization is needed.
+
 ## License
 
 MIT
