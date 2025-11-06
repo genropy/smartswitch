@@ -66,12 +66,12 @@ from smartswitch import Switcher
 api = Switcher()
 
 @api(typerule={'data': dict, 'format': str})
-def handle(data, format):
+def handle_dict(data, format):
     """Handle dict + format string"""
     return serialize(data, format)
 
 @api(typerule={'items': list, 'format': str})
-def handle(items, format):
+def handle_list(items, format):
     """Handle list + format string"""
     return serialize_list(items, format)
 
@@ -79,22 +79,22 @@ def handle(items, format):
 validator = Switcher()
 
 @validator(valrule=lambda user: user.is_admin())
-def validate(user, action):
+def validate_admin(user, action):
     return True  # Admins can do anything
 
 @validator(valrule=lambda user, action: action.requires_permission(user))
-def validate(user, action):
+def validate_permission(user, action):
     return user.has_permission(action)
 
 # ✅ Great for: plugin architectures
 # Plugin 1
 @api(typerule={'doc': PDFDocument})
-def process(doc):
+def process_pdf_doc(doc):
     return process_pdf(doc)
 
 # Plugin 2 (different module)
 @api(typerule={'doc': WordDocument})
-def process(doc):
+def process_word_doc(doc):
     return process_word(doc)
 ```
 
@@ -137,21 +137,21 @@ from smartswitch import Switcher
 router = Switcher()
 
 @router(valrule=lambda method, path: method == "GET" and path == "/users")
-def route(method, path, body=None):
+def route_list_users(method, path, body=None):
     return list_users()
 
 @router(valrule=lambda method, path: method == "GET" and path.startswith("/users/"))
-def route(method, path, body=None):
+def route_get_user(method, path, body=None):
     user_id = path.split("/")[-1]
     return get_user(user_id)
 
 @router(valrule=lambda method, path: method == "POST" and path == "/users")
-def route(method, path, body):
+def route_create_user(method, path, body):
     return create_user(body)
 
 # Other modules can register their own routes
 @router(valrule=lambda method, path: method == "GET" and path == "/products")
-def route(method, path, body=None):
+def route_list_products(method, path, body=None):
     return list_products()
 ```
 
@@ -176,7 +176,7 @@ router = Switcher()
 
 # SmartSwitch for high-level dispatch (request type)
 @router(typerule={'request': HTTPRequest})
-def handle(request: HTTPRequest):
+def handle_http(request: HTTPRequest):
     # Match for internal routing (structural patterns)
     match (request.method, request.path):
         case ("GET", path) if path.startswith("/api/"):
@@ -187,7 +187,7 @@ def handle(request: HTTPRequest):
             return 404
 
 @router(typerule={'request': WebSocketRequest})
-def handle(request: WebSocketRequest):
+def handle_websocket(request: WebSocketRequest):
     # Match for message type
     match request.message:
         case {"type": "subscribe", "channel": channel}:
@@ -206,7 +206,10 @@ match value:
 
 # SmartSwitch: ~1-2μs (negligible for real work)
 @sw(valrule=lambda x: x == 1)
-def handle(x): return "one"
+def handle_one(x): return "one"
+
+@sw(valrule=lambda x: x == 2)
+def handle_two(x): return "two"
 ```
 
 **Performance conclusion:**
@@ -250,16 +253,16 @@ def process_data(data):
 processor = Switcher()
 
 @processor(valrule=lambda data: data.get("type") == "user")
-def process(data):
+def process_user(data):
     return User(data["id"], data["name"])
 
 @processor(valrule=lambda data: data.get("type") == "order")
-def process(data):
+def process_order(data):
     return Order(data["id"], data["items"])
 
 # External plugin can add new types
 @processor(valrule=lambda data: data.get("type") == "subscription")
-def process(data):
+def process_subscription(data):
     return Subscription(data["plan"], data["user_id"])
 ```
 
@@ -284,17 +287,17 @@ def execute_command(cmd):
 commands = Switcher()
 
 @commands(valrule=lambda cmd: cmd.startswith("help"))
-def execute(cmd):
+def execute_help(cmd):
     return show_help()
 
 @commands(valrule=lambda cmd: cmd.startswith("list "))
-def execute(cmd):
+def execute_list(cmd):
     _, category = cmd.split(maxsplit=1)
     return list_items(category)
 
 # Plugins can add commands
 @commands(valrule=lambda cmd: cmd.startswith("deploy "))
-def execute(cmd):
+def execute_deploy(cmd):
     _, target = cmd.split(maxsplit=1)
     return deploy_to(target)
 ```
@@ -323,7 +326,7 @@ def convert(value, target_type):
 converter = Switcher()
 
 @converter(typerule={'value': str, 'target_type': str})
-def convert(value, target_type):
+def convert_string(value, target_type):
     if target_type == "int":
         return int(value)
     elif target_type == "float":
