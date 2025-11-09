@@ -129,7 +129,8 @@ classDiagram
         +str name
         +str description
         +str prefix
-        +Switcher parent
+        -Switcher _parent
+        -set _children
         -dict _handlers
         -list _rules
         -callable _default_handler
@@ -139,11 +140,16 @@ classDiagram
         +__call__(arg, typerule, valrule)
         +__get__(instance, owner)
         +entries() List~str~
+        +parent() Switcher
+        +parent(value) void
+        +children() set~Switcher~
+        +add_child(switcher) void
+        +remove_child(switcher) void
         -_compile_type_checks(typerule, param_names)
         -_make_type_checker(hint)
     }
 
-    Switcher "0..1" --> "0..*" Switcher : parent-child hierarchy
+    Switcher "0..1" --> "0..*" Switcher : parent-child (bidirectional)
 
     class BoundSwitcher {
         -Switcher _switcher
