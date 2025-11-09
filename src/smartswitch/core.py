@@ -55,6 +55,7 @@ class Switcher:
         "name",
         "description",
         "prefix",
+        "parent",
         "_handlers",
         "_rules",
         "_default_handler",
@@ -62,7 +63,11 @@ class Switcher:
     )
 
     def __init__(
-        self, name: str = "default", description: str | None = None, prefix: str | None = None
+        self,
+        name: str = "default",
+        description: str | None = None,
+        prefix: str | None = None,
+        parent: "Switcher | None" = None,
     ):
         """
         Initialize a new Switcher.
@@ -72,10 +77,12 @@ class Switcher:
             description: Optional description for documentation/introspection
             prefix: If set, auto-derive handler names by removing this prefix
                     from decorated function names
+            parent: Optional parent Switcher for hierarchical API structure
         """
         self.name = name
         self.description = description
         self.prefix = prefix
+        self.parent = parent
         self._handlers = {}  # name -> function mapping
         self._rules = []  # list of (matcher, function) tuples
         self._default_handler = None  # default catch-all handler
@@ -331,3 +338,12 @@ class Switcher:
 
         # Simple type check
         return lambda val: isinstance(val, hint)
+
+    def entries(self):
+        """
+        List all registered handler names.
+
+        Returns:
+            List of handler names registered in this Switcher
+        """
+        return list(self._handlers.keys())
