@@ -5,7 +5,10 @@ Optimized version with ~3x performance improvement over naive implementation.
 """
 
 import inspect
-from functools import partial
+import json
+import logging
+import time
+from functools import partial, wraps
 from typing import Any, Union, get_args, get_origin
 
 
@@ -20,6 +23,10 @@ class BoundSwitcher:
     def __init__(self, switcher, instance):
         self._switcher = switcher
         self._instance = instance
+
+    def __getattr__(self, name):
+        """Delegate attribute access to the underlying Switcher."""
+        return getattr(self._switcher, name)
 
     def __call__(self, name):
         """
@@ -50,7 +57,11 @@ class BoundSwitcher:
 
         # Standard lookup
         func = self._switcher._handlers[name]
-        bound = partial(func, self._instance)
+
+        # Apply logging wrapper if enabled
+        logged_func = self._switcher._wrap_with_logging(name, func)
+
+        bound = partial(logged_func, self._instance)
         # Add __wrapped__ attribute for introspection
         bound.__wrapped__ = func
         return bound
@@ -82,6 +93,13 @@ class Switcher:
         "_rules",
         "_default_handler",
         "_param_names_cache",
+        "_log_mode",
+        "_log_default",
+        "_log_handlers",
+        "_log_history",
+        "_log_max_history",
+        "_log_file",
+        "_logger",
     )
 
     def __init__(
@@ -110,6 +128,15 @@ class Switcher:
         self._rules = []  # list of (matcher, function) tuples
         self._default_handler = None  # default catch-all handler
         self._param_names_cache = {}  # function -> param names cache
+
+        # Logging support
+        self._log_mode = None  # None, 'log', 'silent', 'both'
+        self._log_default = {}  # Default config: {'before': bool, 'after': bool, 'time': bool}
+        self._log_handlers = {}  # {handler_name: config_dict or False}
+        self._log_history = []  # List of log entries
+        self._log_max_history = 1000  # Max history size
+        self._log_file = None  # Optional log file path
+        self._logger = None  # logging.Logger instance
 
         # Set parent after initialization (triggers property setter)
         if parent is not None:
@@ -181,6 +208,9 @@ class Switcher:
             if arg in self._handlers:
                 handler = self._handlers[arg]
 
+                # Apply logging wrapper if enabled
+                logged_handler = self._wrap_with_logging(arg, handler)
+
                 # Create a wrapper that can be used both ways
                 class HandlerOrDecorator:
                     def __call__(self, *args, **kwargs):
@@ -194,7 +224,7 @@ class Switcher:
                             if inspect.isfunction(args[0]) or inspect.ismethod(args[0]):
                                 raise ValueError(f"Alias '{arg}' is already registered")
                         # Normal function call
-                        return handler(*args, **kwargs)
+                        return logged_handler(*args, **kwargs)
 
                 wrapper = HandlerOrDecorator()
                 # Add __wrapped__ attribute for introspection tools
@@ -487,3 +517,363 @@ class Switcher:
         if switcher in self._children:
             # Setting parent to None will automatically remove from children
             switcher.parent = None
+
+    def enable_log(
+        self,
+        *handler_names: str,
+        mode: str = "silent",
+        before: bool = True,
+        after: bool = True,
+        time: bool = True,
+        log_file: str | None = None,
+        log_format: str = "json",
+        max_history: int = 1000,
+    ):
+        """
+        Enable logging for handlers.
+
+        Args:
+            *handler_names: Handler names to enable logging for. If empty, enables for all.
+            mode: Logging mode - 'log' (immediate logging), 'silent' (history only),
+                  'both' (logging + history). Default: 'silent'
+            before: Log before handler execution (args, kwargs)
+            after: Log after handler execution (result or exception)
+            time: Measure and log execution time
+            log_file: Optional path to log file (JSONL format)
+            log_format: Log format - 'json' or 'jsonl' (same as 'json')
+            max_history: Maximum number of entries in history (default: 1000)
+        """
+        # Validate mode
+        if mode not in ("log", "silent", "both"):
+            raise ValueError(f"Invalid mode: {mode}. Must be 'log', 'silent', or 'both'")
+
+        # Set global log mode
+        self._log_mode = mode
+        self._log_max_history = max_history
+        self._log_file = log_file
+
+        # Create logger if needed
+        if mode in ("log", "both") and self._logger is None:
+            self._logger = logging.getLogger(f"smartswitch.{self.name}")
+            if not self._logger.handlers:
+                handler = logging.StreamHandler()
+                handler.setFormatter(
+                    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+                )
+                self._logger.addHandler(handler)
+                self._logger.setLevel(logging.INFO)
+
+        # Set default config
+        self._log_default = {"before": before, "after": after, "time": time}
+
+        # If handler names specified, set their config
+        if handler_names:
+            config = {"before": before, "after": after, "time": time}
+            for name in handler_names:
+                self._log_handlers[name] = config
+        # If no names, clear handler-specific configs (all use default)
+        else:
+            self._log_handlers.clear()
+
+    def disable_log(self, *handler_names: str):
+        """
+        Disable logging for specific handlers or globally.
+
+        Args:
+            *handler_names: Handler names to disable logging for.
+                           If empty, disables logging globally.
+        """
+        if handler_names:
+            # Disable specific handlers
+            for name in handler_names:
+                self._log_handlers[name] = False
+        else:
+            # Disable globally
+            self._log_mode = None
+            self._log_default.clear()
+            self._log_handlers.clear()
+
+    def _get_log_config(self, handler_name: str) -> dict | None:
+        """
+        Get the effective logging configuration for a handler.
+
+        Args:
+            handler_name: Name of the handler
+
+        Returns:
+            Config dict with 'before', 'after', 'time' keys, or None if logging disabled
+        """
+        # No logging enabled
+        if self._log_mode is None:
+            return None
+
+        # Check if handler explicitly disabled
+        if handler_name in self._log_handlers and self._log_handlers[handler_name] is False:
+            return None
+
+        # Check if handler has specific config
+        if handler_name in self._log_handlers:
+            return self._log_handlers[handler_name]
+
+        # If _log_handlers has entries that are dicts (not False),
+        # it means specific handlers were configured, so other handlers shouldn't be logged
+        has_specific_configs = any(
+            isinstance(v, dict) for v in self._log_handlers.values()
+        )
+        if has_specific_configs:
+            return None
+
+        # Use default config
+        return self._log_default if self._log_default else None
+
+    def _wrap_with_logging(self, handler_name: str, func):
+        """
+        Wrap a handler function with logging.
+
+        Args:
+            handler_name: Name of the handler
+            func: Function to wrap
+
+        Returns:
+            Wrapped function that logs calls
+        """
+        config = self._get_log_config(handler_name)
+        if config is None:
+            return func
+
+        @wraps(func)
+        def logged_wrapper(*args, **kwargs):
+            # Prepare log entry
+            entry = {
+                "handler": handler_name,
+                "switcher": self.name,
+                "timestamp": time.time(),
+                "args": args,
+                "kwargs": kwargs,
+            }
+
+            # Log before if enabled
+            if config.get("before") and self._log_mode in ("log", "both"):
+                if self._logger:
+                    self._logger.info(
+                        f"Calling {handler_name} with args={args}, kwargs={kwargs}"
+                    )
+
+            # Execute handler and measure time
+            start_time = time.time() if config.get("time") else None
+            exception = None
+            result = None
+
+            try:
+                result = func(*args, **kwargs)
+                entry["result"] = result
+            except Exception as e:
+                exception = e
+                entry["exception"] = {
+                    "type": type(e).__name__,
+                    "message": str(e),
+                }
+                raise
+            finally:
+                # Add elapsed time if enabled
+                if start_time is not None:
+                    entry["elapsed"] = time.time() - start_time
+
+                # Add to history if mode is 'silent' or 'both'
+                if self._log_mode in ("silent", "both"):
+                    self._log_history.append(entry)
+                    # Trim history if needed
+                    if len(self._log_history) > self._log_max_history:
+                        self._log_history.pop(0)
+
+                # Log after if enabled
+                if config.get("after") and self._log_mode in ("log", "both"):
+                    if self._logger:
+                        if exception:
+                            elapsed_str = (
+                                f" (elapsed: {entry['elapsed']:.4f}s)"
+                                if "elapsed" in entry
+                                else ""
+                            )
+                            self._logger.error(
+                                f"{handler_name} raised {type(exception).__name__}: {exception}{elapsed_str}"
+                            )
+                        else:
+                            elapsed_str = (
+                                f" (elapsed: {entry['elapsed']:.4f}s)"
+                                if "elapsed" in entry
+                                else ""
+                            )
+                            self._logger.info(f"{handler_name} returned {result}{elapsed_str}")
+
+                # Write to log file if configured
+                if self._log_file:
+                    try:
+                        with open(self._log_file, "a") as f:
+                            # Convert entry to JSON-serializable format
+                            serializable_entry = {
+                                "handler": entry["handler"],
+                                "switcher": entry["switcher"],
+                                "timestamp": entry["timestamp"],
+                                "args": str(entry["args"]),
+                                "kwargs": str(entry["kwargs"]),
+                            }
+                            if "result" in entry:
+                                serializable_entry["result"] = str(entry["result"])
+                            if "exception" in entry:
+                                serializable_entry["exception"] = entry["exception"]
+                            if "elapsed" in entry:
+                                serializable_entry["elapsed"] = entry["elapsed"]
+
+                            f.write(json.dumps(serializable_entry) + "\n")
+                    except Exception:
+                        # Silently ignore file write errors
+                        pass
+
+            return result
+
+        # Preserve __wrapped__ attribute
+        logged_wrapper.__wrapped__ = func
+        return logged_wrapper
+
+    def get_log_history(
+        self,
+        last: int | None = None,
+        first: int | None = None,
+        handler: str | None = None,
+        slowest: int | None = None,
+        fastest: int | None = None,
+        errors: bool | None = None,
+        slower_than: float | None = None,
+    ) -> list[dict]:
+        """
+        Query the log history with various filters.
+
+        Args:
+            last: Return last N entries
+            first: Return first N entries
+            handler: Filter by handler name
+            slowest: Return N slowest executions
+            fastest: Return N fastest executions
+            errors: If True, return only errors; if False, return only successes
+            slower_than: Return entries with elapsed time > threshold (seconds)
+
+        Returns:
+            List of log entries matching the criteria
+        """
+        result = self._log_history.copy()
+
+        # Filter by handler
+        if handler is not None:
+            result = [e for e in result if e.get("handler") == handler]
+
+        # Filter by errors
+        if errors is not None:
+            if errors:
+                result = [e for e in result if "exception" in e]
+            else:
+                result = [e for e in result if "exception" not in e]
+
+        # Filter by elapsed time threshold
+        if slower_than is not None:
+            result = [e for e in result if e.get("elapsed", 0) > slower_than]
+
+        # Sort by elapsed time if needed
+        if slowest is not None:
+            result = sorted(result, key=lambda e: e.get("elapsed", 0), reverse=True)
+            result = result[:slowest]
+        elif fastest is not None:
+            result = sorted(result, key=lambda e: e.get("elapsed", 0))
+            result = result[:fastest]
+        elif last is not None:
+            result = result[-last:]
+        elif first is not None:
+            result = result[:first]
+
+        return result
+
+    def get_log_stats(self) -> dict[str, dict]:
+        """
+        Get statistics for all handlers.
+
+        Returns:
+            Dict mapping handler names to stats dicts with keys:
+            - calls: number of calls
+            - errors: number of errors
+            - avg_time: average execution time
+            - min_time: minimum execution time
+            - max_time: maximum execution time
+            - total_time: total execution time
+        """
+        stats = {}
+
+        for entry in self._log_history:
+            handler = entry.get("handler")
+            if handler not in stats:
+                stats[handler] = {
+                    "calls": 0,
+                    "errors": 0,
+                    "times": [],
+                }
+
+            stats[handler]["calls"] += 1
+
+            if "exception" in entry:
+                stats[handler]["errors"] += 1
+
+            if "elapsed" in entry:
+                stats[handler]["times"].append(entry["elapsed"])
+
+        # Compute time statistics
+        result = {}
+        for handler, data in stats.items():
+            times = data["times"]
+            result[handler] = {
+                "calls": data["calls"],
+                "errors": data["errors"],
+            }
+            if times:
+                result[handler]["avg_time"] = sum(times) / len(times)
+                result[handler]["min_time"] = min(times)
+                result[handler]["max_time"] = max(times)
+                result[handler]["total_time"] = sum(times)
+            else:
+                result[handler]["avg_time"] = 0.0
+                result[handler]["min_time"] = 0.0
+                result[handler]["max_time"] = 0.0
+                result[handler]["total_time"] = 0.0
+
+        return result
+
+    def clear_log_history(self):
+        """Clear all log history."""
+        self._log_history.clear()
+
+    def export_log_history(self, filepath: str):
+        """
+        Export log history to a JSON file.
+
+        Args:
+            filepath: Path to output JSON file
+        """
+        with open(filepath, "w") as f:
+            # Convert entries to JSON-serializable format
+            serializable_entries = []
+            for entry in self._log_history:
+                serializable_entry = {
+                    "handler": entry["handler"],
+                    "switcher": entry["switcher"],
+                    "timestamp": entry["timestamp"],
+                    "args": str(entry["args"]),
+                    "kwargs": str(entry["kwargs"]),
+                }
+                if "result" in entry:
+                    serializable_entry["result"] = str(entry["result"])
+                if "exception" in entry:
+                    serializable_entry["exception"] = entry["exception"]
+                if "elapsed" in entry:
+                    serializable_entry["elapsed"] = entry["elapsed"]
+
+                serializable_entries.append(serializable_entry)
+
+            json.dump(serializable_entries, f, indent=2)
