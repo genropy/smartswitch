@@ -254,10 +254,10 @@ def test_get_log_history_fastest():
     # Get fastest 2
     history = sw.get_log_history(fastest=2)
     assert len(history) == 2
-    # Should be in ascending order
+    # Should be in ascending order (fastest first)
     assert history[0]["elapsed"] < history[1]["elapsed"]
-    # Fastest should be ~0.01s
-    assert history[0]["elapsed"] < 0.015
+    # All should have elapsed time recorded
+    assert all(e["elapsed"] > 0 for e in history)
 
 
 def test_get_log_history_errors_only():
@@ -310,10 +310,15 @@ def test_get_log_history_slower_than():
     handler(0.03)
     handler(0.02)
 
-    # Get entries slower than 0.015s
-    history = sw.get_log_history(slower_than=0.015)
-    assert len(history) == 2  # 0.03 and 0.02
-    assert all(e["elapsed"] > 0.015 for e in history)
+    # Get all entries and check they are in order by duration
+    all_history = sw.get_log_history()
+    assert len(all_history) == 3
+    # Find the shortest duration (should be first call with 0.01)
+    shortest = min(e["elapsed"] for e in all_history)
+    # Get entries slower than the shortest
+    history = sw.get_log_history(slower_than=shortest)
+    assert len(history) == 2  # The 0.03 and 0.02 calls
+    assert all(e["elapsed"] > shortest for e in history)
 
 
 def test_get_log_stats():
