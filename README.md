@@ -298,6 +298,39 @@ def process_generic(method, amount, details):
 - 🚀 **Efficient**: Optimized with caching (~1-2μs overhead)
 - 🛡️ **Type-safe**: Full type annotation support
 
+### API Discovery and Introspection
+
+- 🔍 **[Handler introspection](https://smartswitch.readthedocs.io/guide/api-discovery/)**: List all registered handlers with `entries()` method (NEW in v0.3.0)
+- 🌳 **[Hierarchical structures](https://smartswitch.readthedocs.io/guide/api-discovery/#hierarchical-switcher-structures)**: Build parent-child Switcher hierarchies with `parent` parameter (NEW in v0.3.0)
+
+**Quick example:**
+```python
+from smartswitch import Switcher
+
+class MyAPI:
+    # Main aggregator
+    main = Switcher(name="main")
+
+    # Organize handlers by functional area
+    users = Switcher(name="users", parent=main)
+    posts = Switcher(name="posts", parent=main)
+
+    @users
+    def create_user(self, data):
+        pass
+
+    @posts
+    def create_post(self, data):
+        pass
+
+# Introspect each area
+api = MyAPI()
+print(api.users.entries())  # ['create_user']
+assert api.users.parent is MyAPI.main
+```
+
+See the [API Discovery Guide](https://smartswitch.readthedocs.io/guide/api-discovery/) for details, or [smpub](https://github.com/genropy/smpub) for production usage.
+
 ## Documentation
 
 📚 **Full documentation**: [smartswitch.readthedocs.io](https://smartswitch.readthedocs.io/)
@@ -306,6 +339,7 @@ def process_generic(method, amount, details):
 - [Type Rules](https://smartswitch.readthedocs.io/guide/typerules/) - Dispatch based on types
 - [Value Rules](https://smartswitch.readthedocs.io/guide/valrules/) - Dispatch based on runtime values
 - [Named Handlers](https://smartswitch.readthedocs.io/guide/named-handlers/) - Direct handler access
+- [API Discovery](https://smartswitch.readthedocs.io/guide/api-discovery/) - Introspection and hierarchies (NEW)
 - [Best Practices](https://smartswitch.readthedocs.io/guide/best-practices/) - Production patterns
 - [API Reference](https://smartswitch.readthedocs.io/api/switcher/) - Complete API docs
 
