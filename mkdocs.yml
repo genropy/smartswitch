@@ -57,10 +57,10 @@ nav:
     - Quick Start: user-guide/quickstart.md
     - Basic Usage: user-guide/basic.md
   - User Guide:
-    - Type Rules: guide/typerules.md
-    - Value Rules: guide/valrules.md
     - Named Handlers: guide/named-handlers.md
     - API Discovery: guide/api-discovery.md
+    - Value Rules: guide/valrules.md
+    - Type Rules: guide/typerules.md
     - Logging & History: guide/logging.md
     - Best Practices: guide/best-practices.md
   - Examples:
