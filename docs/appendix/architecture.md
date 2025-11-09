@@ -11,6 +11,7 @@ graph TB
     subgraph UserCode[User Code]
         U1[Decorator Usage]
         U2[Handler Dispatch]
+        U3[Logging/History Queries]
     end
 
     subgraph SwitcherCore[Switcher Core]
@@ -22,27 +23,43 @@ graph TB
         MT[_make_type_checker]
     end
 
+    subgraph LoggingSystem[Logging System v0.4.0]
+        LM[_log_mode]
+        LH[_log_handlers]
+        LF[_log_history]
+        LG[_logger]
+        WL[_wrap_with_logging]
+    end
+
     subgraph DescriptorSupport[Descriptor Support]
         BS[BoundSwitcher]
     end
 
     U1 --> SW
     U2 --> SW
+    U3 --> SW
     SW --> HD
     SW --> RL
     SW --> PC
     SW --> CT
     SW --> MT
     SW --> BS
+    SW --> LM
+    SW --> LH
+    SW --> LF
+    SW --> LG
+    SW --> WL
 
     style SW fill:#4051b5,stroke:#333,stroke-width:2px,color:#fff
     style BS fill:#7986cb,stroke:#333,stroke-width:2px,color:#fff
+    style LM fill:#66bb6a,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-SmartSwitch consists of two main classes:
+SmartSwitch consists of two main classes and a logging subsystem:
 
 - **Switcher**: The core engine handling registration and dispatch
 - **BoundSwitcher**: Descriptor helper for automatic method binding in classes
+- **Logging System** (v0.4.0): Call history tracking, performance analysis, and error monitoring
 
 ---
 
@@ -135,6 +152,13 @@ classDiagram
         -list _rules
         -callable _default_handler
         -dict _param_names_cache
+        -str _log_mode
+        -dict _log_default
+        -dict _log_handlers
+        -list _log_history
+        -int _log_max_history
+        -str _log_file
+        -Logger _logger
 
         +__init__(name, description, prefix, parent)
         +__call__(arg, typerule, valrule)
@@ -145,8 +169,16 @@ classDiagram
         +children() set~Switcher~
         +add_child(switcher) void
         +remove_child(switcher) void
+        +enable_log(...) void
+        +disable_log(...) void
+        +get_log_history(...) List
+        +get_log_stats() dict
+        +clear_log_history() void
+        +export_log_history(filepath) void
         -_compile_type_checks(typerule, param_names)
         -_make_type_checker(hint)
+        -_get_log_config(handler_name) dict
+        -_wrap_with_logging(handler_name, func) callable
     }
 
     Switcher "0..1" --> "0..*" Switcher : parent-child (bidirectional)
@@ -157,6 +189,7 @@ classDiagram
 
         +__init__(switcher, instance)
         +__call__(name)
+        +__getattr__(name)
     }
 
     class Handler {
@@ -186,12 +219,15 @@ classDiagram
 ```
 src/smartswitch/
 ├── __init__.py          # Public API exports (4 lines)
-└── core.py              # Core implementation (328 lines)
-    ├── BoundSwitcher    # Lines 12-36 (23 lines)
-    └── Switcher         # Lines 38-328 (305 lines)
+└── core.py              # Core implementation (770+ lines)
+    ├── BoundSwitcher    # Lines 12-42 (30 lines)
+    └── Switcher         # Lines 44-770+ (726+ lines)
+        ├── Registration & Dispatch    # Lines 44-470
+        ├── Logging System (v0.4.0)    # Lines 470-670
+        └── History & Stats            # Lines 670-770+
 ```
 
-**Design**: Intentionally minimal - single file core with zero external dependencies.
+**Design**: Intentionally minimal - single file core with zero external dependencies (stdlib only).
 
 ---
 
@@ -385,21 +421,164 @@ for i, name in enumerate(param_names):  # Cached!
 
 ---
 
-## Extension Points
+## Logging System Architecture (v0.4.0)
 
-SmartSwitch's architecture supports future enhancements:
+### Overview
+
+The logging system wraps handlers with an additional layer that records execution details without modifying the original function behavior.
+
+### Components
+
+**State Management**:
+- `_log_mode`: Global mode ('silent', 'log', 'both', or None)
+- `_log_default`: Default config dict for all handlers
+- `_log_handlers`: Per-handler config overrides (dict or False to disable)
+- `_log_history`: Circular buffer of execution records (list)
+- `_log_max_history`: Maximum history size (default 1000)
+- `_log_file`: Optional JSONL file path for persistent logging
+- `_logger`: Python logging.Logger instance
+
+### Logging Modes
+
+1. **Silent Mode** (`mode="silent"`):
+   - Records to `_log_history` only
+   - Zero console output
+   - Ideal for production performance monitoring
+
+2. **Log Mode** (`mode="log"`):
+   - Outputs to logger (stdout/stderr)
+   - No history tracking
+   - Traditional logging behavior
+
+3. **Both Mode** (`mode="both"`):
+   - Records to history AND logs to console
+   - Complete observability
+
+### Handler Wrapping Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Switcher
+    participant Wrapper
+    participant Handler
+    participant History
+
+    User->>Switcher: enable_log(mode="silent")
+    Switcher->>Switcher: Set _log_mode="silent"
+
+    User->>Switcher: sw("handler_name")
+    Switcher->>Switcher: _get_log_config("handler_name")
+
+    alt Logging enabled for handler
+        Switcher->>Wrapper: _wrap_with_logging(name, func)
+        Wrapper->>User: Return logged_wrapper
+    else Logging disabled
+        Switcher->>User: Return original func
+    end
+
+    User->>Wrapper: Call handler(args)
+
+    alt mode="silent" or "both"
+        Wrapper->>Wrapper: Record start time
+    end
+
+    Wrapper->>Handler: Execute original(*args, **kwargs)
+    Handler-->>Wrapper: Return result or raise exception
+
+    alt mode="silent" or "both"
+        Wrapper->>Wrapper: Calculate elapsed time
+        Wrapper->>History: Append entry (with FIFO eviction)
+    end
+
+    alt mode="log" or "both"
+        Wrapper->>Switcher: Log to _logger
+    end
+
+    Wrapper-->>User: Return result or re-raise exception
+```
+
+### History Record Format
+
+Each history entry is a dict:
+
+```python
+{
+    "handler": "handler_name",
+    "switcher": "switcher_name",
+    "timestamp": 1234567890.123,
+    "args": (arg1, arg2),
+    "kwargs": {"key": "value"},
+    "result": return_value,        # Only if success
+    "exception": {                 # Only if error
+        "type": "ValueError",
+        "message": "error message",
+        "traceback": "full traceback"
+    },
+    "elapsed": 0.001234            # Seconds
+}
+```
+
+### Circular Buffer Implementation
+
+History uses a simple circular buffer:
+
+1. Append new entries to `_log_history`
+2. If `len(_log_history) > _log_max_history`:
+   - Remove oldest entry: `_log_history.pop(0)`
+3. FIFO eviction maintains most recent entries
+
+### Query API
+
+The query methods provide rich filtering:
+
+- **Temporal**: `first=N`, `last=N`
+- **By handler**: `handler="name"`
+- **By performance**: `slowest=N`, `fastest=N`, `slower_than=seconds`
+- **By status**: `errors=True/False`
+
+All filters compose naturally with Python list operations.
+
+### __wrapped__ Preservation
+
+Critical for introspection tools (IDEs, debuggers, documentation):
+
+```python
+logged_wrapper.__wrapped__ = func
+```
+
+Tools can access original function signature via `__wrapped__` even when logging is active.
+
+### BoundSwitcher Delegation
+
+`BoundSwitcher` delegates all methods to underlying `Switcher` via `__getattr__`:
+
+```python
+def __getattr__(self, name):
+    """Delegate attribute access to the underlying Switcher."""
+    return getattr(self._switcher, name)
+```
+
+This ensures class-based usage has full logging API access.
+
+---
+
+## Future Extension Points
+
+SmartSwitch's architecture supports potential enhancements:
 
 **1. Async Support**
 
+Detect and handle async handlers without blocking:
+
 ```python
-# Detect async handlers
 if inspect.iscoroutinefunction(func):
-    return func(*args, **kwargs)  # Return coroutine
+    return func(*args, **kwargs)  # Return awaitable
 ```
 
 **2. Custom Matchers**
 
-Extend beyond `typerule`/`valrule` with custom matching logic:
+Extend beyond `typerule`/`valrule`:
 
 ```python
 @sw(custom_matcher=lambda args: args['priority'] == 'high')
@@ -407,15 +586,7 @@ def urgent_handler(priority, task):
     ...
 ```
 
-**3. Logging/Observability**
-
-Hook into registration and dispatch for monitoring:
-
-```python
-sw.add_logger('read', 'write', time=True, before=True, after=True)
-```
-
-**4. Result Caching**
+**3. Result Caching**
 
 Cache dispatch results for pure functions:
 

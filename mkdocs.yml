@@ -61,6 +61,7 @@ nav:
     - Value Rules: guide/valrules.md
     - Named Handlers: guide/named-handlers.md
     - API Discovery: guide/api-discovery.md
+    - Logging & History: guide/logging.md
     - Best Practices: guide/best-practices.md
   - Examples:
     - Overview: examples/index.md

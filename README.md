@@ -304,6 +304,13 @@ def process_generic(method, amount, details):
 - 🌳 **[Hierarchical structures](https://smartswitch.readthedocs.io/guide/api-discovery/#organizing-multiple-switchers)**: Organize multiple Switchers with `add()` method (v0.3.1)
 - 🔗 **[Dot notation access](https://smartswitch.readthedocs.io/guide/api-discovery/#hierarchical-access)**: Navigate hierarchies with dot notation like `mainswitch('users.list')` (NEW in v0.3.1)
 
+### Logging and Observability
+
+- 📊 **[Call history tracking](https://smartswitch.readthedocs.io/guide/logging/)**: Record handler executions with args, results, timing (NEW in v0.4.0)
+- 🔍 **[Performance analysis](https://smartswitch.readthedocs.io/guide/logging/#performance-analysis)**: Find slowest calls, analyze execution patterns
+- 🐛 **[Error tracking](https://smartswitch.readthedocs.io/guide/logging/#error-tracking)**: Filter and analyze failed executions
+- 🤫 **[Silent mode](https://smartswitch.readthedocs.io/guide/logging/#silent-mode-default)**: Zero-overhead history tracking for production
+
 **Organizing multiple Switchers in a class:**
 ```python
 from smartswitch import Switcher
@@ -353,7 +360,8 @@ See the [API Discovery Guide](https://smartswitch.readthedocs.io/guide/api-disco
 - [Type Rules](https://smartswitch.readthedocs.io/guide/typerules/) - Dispatch based on types
 - [Value Rules](https://smartswitch.readthedocs.io/guide/valrules/) - Dispatch based on runtime values
 - [Named Handlers](https://smartswitch.readthedocs.io/guide/named-handlers/) - Direct handler access
-- [API Discovery](https://smartswitch.readthedocs.io/guide/api-discovery/) - Introspection and hierarchies (NEW)
+- [API Discovery](https://smartswitch.readthedocs.io/guide/api-discovery/) - Introspection and hierarchies
+- [Logging](https://smartswitch.readthedocs.io/guide/logging/) - History tracking and performance analysis (NEW in v0.4.0)
 - [Best Practices](https://smartswitch.readthedocs.io/guide/best-practices/) - Production patterns
 - [API Reference](https://smartswitch.readthedocs.io/api/switcher/) - Complete API docs
 
