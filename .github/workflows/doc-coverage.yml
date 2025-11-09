@@ -41,12 +41,12 @@ jobs:
 
       - name: Analyze documentation coverage
         run: |
-          python scripts/check_doc_coverage.py --threshold 80 --json-output doc-coverage.json
+          python scripts/check_doc_coverage.py --output doc-coverage.json
 
       - name: Generate HTML report
         if: always()
         run: |
-          python scripts/generate_doc_coverage_html.py
+          python scripts/generate_report.py --format html
 
       - name: Upload doc coverage report
         if: always()
