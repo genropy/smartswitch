@@ -42,11 +42,18 @@ class BoundSwitcher:
                 # Already bound
                 return handler
             # Bind to instance
-            return partial(handler, self._instance)
+            bound = partial(handler, self._instance)
+            # Preserve __wrapped__ if available
+            if hasattr(handler, '__wrapped__'):
+                bound.__wrapped__ = handler.__wrapped__
+            return bound
 
         # Standard lookup
         func = self._switcher._handlers[name]
-        return partial(func, self._instance)
+        bound = partial(func, self._instance)
+        # Add __wrapped__ attribute for introspection
+        bound.__wrapped__ = func
+        return bound
 
 
 class Switcher:
@@ -189,7 +196,10 @@ class Switcher:
                         # Normal function call
                         return handler(*args, **kwargs)
 
-                return HandlerOrDecorator()
+                wrapper = HandlerOrDecorator()
+                # Add __wrapped__ attribute for introspection tools
+                wrapper.__wrapped__ = handler
+                return wrapper
 
             # Not found, return decorator for registration
             def decorator(func):
