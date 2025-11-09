@@ -40,18 +40,18 @@ class BoundSwitcher:
             Bound method ready to call without passing self
         """
         # Check for dot notation (hierarchical navigation)
-        if '.' in name:
+        if "." in name:
             # Delegate to underlying Switcher's dot notation support
             # which returns the handler, then bind it
             handler = self._switcher(name)
             # If it's already a HandlerOrDecorator, extract the actual function
-            if hasattr(handler, '__self__'):
+            if hasattr(handler, "__self__"):
                 # Already bound
                 return handler
             # Bind to instance
             bound = partial(handler, self._instance)
             # Preserve __wrapped__ if available
-            if hasattr(handler, '__wrapped__'):
+            if hasattr(handler, "__wrapped__"):
                 bound.__wrapped__ = handler.__wrapped__
             return bound
 
@@ -189,8 +189,8 @@ class Switcher:
         # Case 2: @switch('alias') - register with custom name OR lookup
         if isinstance(arg, str) and typerule is None and valrule is None:
             # Check for dot notation (hierarchical navigation)
-            if '.' in arg:
-                parts = arg.split('.', 1)
+            if "." in arg:
+                parts = arg.split(".", 1)
                 child_name = parts[0]
                 remaining = parts[1]
 
@@ -617,9 +617,7 @@ class Switcher:
 
         # If _log_handlers has entries that are dicts (not False),
         # it means specific handlers were configured, so other handlers shouldn't be logged
-        has_specific_configs = any(
-            isinstance(v, dict) for v in self._log_handlers.values()
-        )
+        has_specific_configs = any(isinstance(v, dict) for v in self._log_handlers.values())
         if has_specific_configs:
             return None
 
@@ -655,9 +653,7 @@ class Switcher:
             # Log before if enabled
             if config.get("before") and self._log_mode in ("log", "both"):
                 if self._logger:
-                    self._logger.info(
-                        f"Calling {handler_name} with args={args}, kwargs={kwargs}"
-                    )
+                    self._logger.info(f"Calling {handler_name} with args={args}, kwargs={kwargs}")
 
             # Execute handler and measure time
             start_time = time.time() if config.get("time") else None
@@ -691,18 +687,15 @@ class Switcher:
                     if self._logger:
                         if exception:
                             elapsed_str = (
-                                f" (elapsed: {entry['elapsed']:.4f}s)"
-                                if "elapsed" in entry
-                                else ""
+                                f" (elapsed: {entry['elapsed']:.4f}s)" if "elapsed" in entry else ""
                             )
+                            exc_type = type(exception).__name__
                             self._logger.error(
-                                f"{handler_name} raised {type(exception).__name__}: {exception}{elapsed_str}"
+                                f"{handler_name} raised {exc_type}: {exception}{elapsed_str}"
                             )
                         else:
                             elapsed_str = (
-                                f" (elapsed: {entry['elapsed']:.4f}s)"
-                                if "elapsed" in entry
-                                else ""
+                                f" (elapsed: {entry['elapsed']:.4f}s)" if "elapsed" in entry else ""
                             )
                             self._logger.info(f"{handler_name} returned {result}{elapsed_str}")
 
