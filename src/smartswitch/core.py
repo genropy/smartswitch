@@ -24,13 +24,27 @@ class BoundSwitcher:
     def __call__(self, name):
         """
         Get a handler by name and bind it to the instance.
+        Supports dot notation for hierarchical navigation.
 
         Args:
-            name: Handler function name
+            name: Handler function name (supports dot notation like 'child.handler')
 
         Returns:
             Bound method ready to call without passing self
         """
+        # Check for dot notation (hierarchical navigation)
+        if '.' in name:
+            # Delegate to underlying Switcher's dot notation support
+            # which returns the handler, then bind it
+            handler = self._switcher(name)
+            # If it's already a HandlerOrDecorator, extract the actual function
+            if hasattr(handler, '__self__'):
+                # Already bound
+                return handler
+            # Bind to instance
+            return partial(handler, self._instance)
+
+        # Standard lookup
         func = self._switcher._handlers[name]
         return partial(func, self._instance)
 
@@ -55,7 +69,8 @@ class Switcher:
         "name",
         "description",
         "prefix",
-        "parent",
+        "_parent",
+        "_children",
         "_handlers",
         "_rules",
         "_default_handler",
@@ -82,11 +97,16 @@ class Switcher:
         self.name = name
         self.description = description
         self.prefix = prefix
-        self.parent = parent
+        self._parent = None
+        self._children = set()
         self._handlers = {}  # name -> function mapping
         self._rules = []  # list of (matcher, function) tuples
         self._default_handler = None  # default catch-all handler
         self._param_names_cache = {}  # function -> param names cache
+
+        # Set parent after initialization (triggers property setter)
+        if parent is not None:
+            self.parent = parent
 
     def __call__(
         self,
@@ -134,6 +154,22 @@ class Switcher:
 
         # Case 2: @switch('alias') - register with custom name OR lookup
         if isinstance(arg, str) and typerule is None and valrule is None:
+            # Check for dot notation (hierarchical navigation)
+            if '.' in arg:
+                parts = arg.split('.', 1)
+                child_name = parts[0]
+                remaining = parts[1]
+
+                # Find child by name
+                for child in self._children:
+                    if child.name == child_name:
+                        # Recursively navigate
+                        return child(remaining)
+
+                # Child not found
+                raise KeyError(f"Child Switcher '{child_name}' not found")
+
+            # No dot notation - standard behavior
             # If handler exists, check if being used as decorator or lookup
             if arg in self._handlers:
                 handler = self._handlers[arg]
@@ -347,3 +383,97 @@ class Switcher:
             List of handler names registered in this Switcher
         """
         return list(self._handlers.keys())
+
+    @property
+    def parent(self) -> "Switcher | None":
+        """
+        Get the parent Switcher.
+
+        Returns:
+            Parent Switcher instance or None if no parent
+        """
+        return self._parent
+
+    @parent.setter
+    def parent(self, value: "Switcher | None"):
+        """
+        Set the parent Switcher with automatic bidirectional registration.
+
+        When setting a parent:
+        1. Unregisters from old parent (if any)
+        2. Sets new parent
+        3. Registers with new parent's children
+
+        Args:
+            value: Parent Switcher instance or None to unset parent
+        """
+        # Unregister from old parent
+        if self._parent is not None:
+            self._parent._children.discard(self)
+
+        # Set new parent
+        self._parent = value
+
+        # Register with new parent
+        if value is not None:
+            value._children.add(self)
+
+    @property
+    def children(self) -> set["Switcher"]:
+        """
+        Get all child Switchers.
+
+        Returns:
+            Set of child Switcher instances
+        """
+        return self._children.copy()
+
+    def add_child(self, switcher: "Switcher") -> "Switcher":
+        """
+        Add a child Switcher and return it.
+
+        This also sets this Switcher as the child's parent.
+        Returns the child so it can be used as a decorator.
+
+        Args:
+            switcher: Child Switcher to add
+
+        Returns:
+            The child Switcher (for chaining/assignment)
+
+        Raises:
+            TypeError: If switcher is not a Switcher instance
+        """
+        if not isinstance(switcher, Switcher):
+            raise TypeError(f"Expected Switcher instance, got {type(switcher)}")
+
+        # Setting parent will automatically add to children via property setter
+        switcher.parent = self
+        return switcher
+
+    def add(self, switcher: "Switcher") -> "Switcher":
+        """
+        Alias for add_child(). Add a child Switcher and return it.
+
+        This is a shorter, more convenient alias for add_child().
+
+        Args:
+            switcher: Child Switcher to add
+
+        Returns:
+            The child Switcher (for chaining/assignment)
+        """
+        return self.add_child(switcher)
+
+    def remove_child(self, switcher: "Switcher"):
+        """
+        Remove a child Switcher.
+
+        This also unsets the child's parent.
+
+        Args:
+            switcher: Child Switcher to remove
+        """
+        if switcher in self._children:
+            # Setting parent to None will automatically remove from children
+            switcher.parent = None

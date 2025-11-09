@@ -300,33 +300,47 @@ def process_generic(method, amount, details):
 
 ### API Discovery and Introspection
 
-- 🔍 **[Handler introspection](https://smartswitch.readthedocs.io/guide/api-discovery/)**: List all registered handlers with `entries()` method (NEW in v0.3.0)
-- 🌳 **[Hierarchical structures](https://smartswitch.readthedocs.io/guide/api-discovery/#hierarchical-switcher-structures)**: Build parent-child Switcher hierarchies with `parent` parameter (NEW in v0.3.0)
+- 🔍 **[Handler introspection](https://smartswitch.readthedocs.io/guide/api-discovery/)**: List all registered handlers with `entries()` method (v0.3.0)
+- 🌳 **[Hierarchical structures](https://smartswitch.readthedocs.io/guide/api-discovery/#organizing-multiple-switchers)**: Organize multiple Switchers with `add()` method (v0.3.1)
+- 🔗 **[Dot notation access](https://smartswitch.readthedocs.io/guide/api-discovery/#hierarchical-access)**: Navigate hierarchies with dot notation like `mainswitch('users.list')` (NEW in v0.3.1)
 
-**Quick example:**
+**Organizing multiple Switchers in a class:**
 ```python
 from smartswitch import Switcher
 
 class MyAPI:
-    # Main aggregator
-    main = Switcher(name="main")
+    # Main switcher
+    mainswitch = Switcher(name="main")
 
-    # Organize handlers by functional area
-    users = Switcher(name="users", parent=main)
-    posts = Switcher(name="posts", parent=main)
+    # Add child switchers
+    users = mainswitch.add(Switcher(name="users", prefix="user_"))
+    products = mainswitch.add(Switcher(name="products", prefix="product_"))
 
     @users
-    def create_user(self, data):
-        pass
+    def user_list(self):
+        return ["alice", "bob"]
 
-    @posts
-    def create_post(self, data):
-        pass
+    @products
+    def product_list(self):
+        return ["laptop", "phone"]
 
-# Introspect each area
+# Use directly
 api = MyAPI()
-print(api.users.entries())  # ['create_user']
-assert api.users.parent is MyAPI.main
+api.users('list')()  # Direct access
+
+# Or via mainswitch with dot notation
+api.mainswitch('users.list')()  # Hierarchical access
+api.mainswitch('products.list')()
+```
+
+**Discovering child Switchers:**
+```python
+# Iterate all children
+for child in api.mainswitch.children:
+    print(f"{child.name}: {child.entries()}")
+# Output:
+# users: ['list']
+# products: ['list']
 ```
 
 See the [API Discovery Guide](https://smartswitch.readthedocs.io/guide/api-discovery/) for details, or [smpub](https://github.com/genropy/smpub) for production usage.
