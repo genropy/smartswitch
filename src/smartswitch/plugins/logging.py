@@ -116,6 +116,20 @@ class LoggingPlugin:
         self._log_file: str | None = None
         self._switcher: "Switcher | None" = None
 
+    def on_decorate(self, func: Callable, switcher: "Switcher") -> None:
+        """
+        Hook called when a function is decorated (no-op for LoggingPlugin).
+
+        LoggingPlugin doesn't need to prepare anything during decoration,
+        all work is done in wrap() and at call time.
+
+        Args:
+            func: The handler function being decorated
+            switcher: The Switcher instance
+        """
+        # No preparation needed for logging - everything happens at call time
+        pass
+
     def wrap(self, func: Callable, switcher: "Switcher") -> Callable:
         """
         Wrap a handler function with logging/history tracking.

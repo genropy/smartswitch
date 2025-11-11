@@ -50,33 +50,32 @@ class PydanticPlugin(BasePlugin):
         """
         super().__init__(**config)
 
-    def _wrap_handler(self, func: Callable, switcher: Any) -> Callable:
+    def on_decorate(self, func: Callable, switcher: Any) -> None:
         """
-        Wrap a function with Pydantic validation.
+        Prepare validation model during decoration.
+
+        Extracts type hints and creates Pydantic model, storing it in
+        func._plugin_meta['pydantic'] for use by this plugin and others.
 
         Args:
-            func: The function to wrap
-            switcher: The Switcher instance (unused in MVP)
-
-        Returns:
-            Wrapped function that validates arguments before execution
+            func: The handler function being decorated
+            switcher: The Switcher instance
         """
         # Get type hints (resolved with string annotations)
         try:
             hints = get_type_hints(func)
         except Exception:
-            # If type hints can't be resolved, skip validation
-            return func
+            # If type hints can't be resolved, skip
+            return
 
         # Remove return type hint
         hints.pop("return", None)
 
-        # If no type hints to validate, return original function
+        # If no type hints to validate, skip
         if not hints:
-            return func
+            return
 
         # Create a Pydantic model dynamically from type hints
-        # Use function signature to get defaults
         import inspect
 
         sig = inspect.signature(func)
@@ -96,6 +95,37 @@ class PydanticPlugin(BasePlugin):
 
         # Create validation model
         ValidationModel = create_model(f"{func.__name__}_Model", **fields)
+
+        # Store model and metadata for use by this and other plugins
+        func._plugin_meta["pydantic"] = {
+            "model": ValidationModel,
+            "hints": hints,
+            "signature": sig,
+        }
+
+    def _wrap_handler(self, func: Callable, switcher: Any) -> Callable:
+        """
+        Wrap a function with Pydantic validation.
+
+        Uses pre-created validation model from func._plugin_meta['pydantic']
+        if available, otherwise skips validation.
+
+        Args:
+            func: The function to wrap
+            switcher: The Switcher instance (unused in MVP)
+
+        Returns:
+            Wrapped function that validates arguments before execution
+        """
+        # Check if validation model was created in on_decorate
+        pydantic_meta = getattr(func, "_plugin_meta", {}).get("pydantic", {})
+        if not pydantic_meta:
+            # No validation model - return original function
+            return func
+
+        ValidationModel = pydantic_meta["model"]
+        hints = pydantic_meta["hints"]
+        sig = pydantic_meta["signature"]
 
         @wraps(func)
         def wrapper(*args, **kwargs):

@@ -437,3 +437,15 @@ class TestPydanticPluginConfigure:
         # Re-enable
         sw.pydantic.configure("my_handler", enabled=True)
         assert sw.pydantic.is_enabled("my_handler") is True
+
+    def test_plugin_name_property(self):
+        """Test that plugin_name property generates correct name."""
+        sw = Switcher().plug("pydantic")
+
+        # PydanticPlugin should register as 'pydantic'
+        assert hasattr(sw, "pydantic")
+        assert sw.pydantic.plugin_name == "pydantic"
+
+        # Verify it's accessible via the registry
+        assert "pydantic" in sw._plugin_registry
+        assert sw._plugin_registry["pydantic"] is sw.pydantic

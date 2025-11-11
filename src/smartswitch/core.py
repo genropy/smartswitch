@@ -104,6 +104,37 @@ class Switcher:
         "_logger",
     )
 
+    # Global plugin registry - shared across all Switcher instances
+    _global_plugin_registry: dict[str, type] = {}
+
+    @classmethod
+    def register_plugin(cls, name: str, plugin_class: type) -> None:
+        """
+        Register a plugin globally by name.
+
+        This allows external plugins to register themselves so they can be
+        loaded by name using plug(name) without explicit imports.
+
+        Args:
+            name: Plugin name for registration (e.g., "redis", "mongodb")
+            plugin_class: Plugin class (not instance) to register
+
+        Example:
+            >>> from smartswitch import Switcher, BasePlugin
+            >>>
+            >>> class RedisPlugin(BasePlugin):
+            ...     def _wrap_handler(self, func, switcher):
+            ...         # ... implementation ...
+            ...         return func
+            >>>
+            >>> # Register plugin globally
+            >>> Switcher.register_plugin("redis", RedisPlugin)
+            >>>
+            >>> # Now can be used anywhere with just the name
+            >>> sw = Switcher().plug("redis")
+        """
+        cls._global_plugin_registry[name] = plugin_class
+
     def __init__(
         self,
         name: str = "default",
@@ -212,43 +243,29 @@ class Switcher:
 
     def _get_standard_plugin(self, name: str, **kwargs):
         """
-        Lookup and instantiate a standard plugin by name.
+        Lookup and instantiate a plugin by name from global registry.
 
         Args:
-            name: Plugin name ('logging', 'typerule', 'valrule', 'pydantic')
+            name: Plugin name (e.g., 'logging', 'pydantic', or any registered plugin)
             **kwargs: Plugin configuration parameters
 
         Returns:
             Plugin instance
 
         Raises:
-            ValueError: If plugin name is unknown
+            ValueError: If plugin name is not registered
         """
-        from .plugins import LoggingPlugin  # TypeRulePlugin, ValueRulePlugin
+        if name not in self._global_plugin_registry:
+            available = ", ".join(sorted(self._global_plugin_registry.keys()))
+            raise ValueError(
+                f"Unknown plugin: '{name}'. "
+                f"Available plugins: {available}\n"
+                f"External plugins can be registered with: "
+                f"Switcher.register_plugin(name, PluginClass)"
+            )
 
-        registry = {
-            "logging": LoggingPlugin,
-            # "typerule": TypeRulePlugin,  # TODO: Implement
-            # "valrule": ValueRulePlugin,   # TODO: Implement
-        }
-
-        # Optional plugins (require extra dependencies)
-        if name == "pydantic":
-            try:
-                from .plugins.pydantic import PydanticPlugin
-
-                registry["pydantic"] = PydanticPlugin
-            except ImportError as e:
-                raise ImportError(
-                    f"Pydantic plugin requires pydantic. "
-                    f"Install with: pip install smartswitch[pydantic]"
-                ) from e
-
-        if name not in registry:
-            available = ", ".join(registry.keys())
-            raise ValueError(f"Unknown plugin: {name}. Available: {available}")
-
-        return registry[name](**kwargs)
+        plugin_class = self._global_plugin_registry[name]
+        return plugin_class(**kwargs)
 
     def __getattr__(self, name: str):
         """
@@ -321,9 +338,16 @@ class Switcher:
                     f"Handler '{handler_name}' already taken by function '{existing.__name__}'"
                 )
 
+            # Initialize plugin metadata dictionary
+            if not hasattr(arg, "_plugin_meta"):
+                arg._plugin_meta = {}
+
             # Apply plugins
             wrapped = arg
             for plugin in self._plugins:
+                # Call on_decorate hook first (notification)
+                plugin.on_decorate(arg, self)
+                # Then wrap the function
                 wrapped = plugin.wrap(wrapped, self)
 
             self._handlers[handler_name] = wrapped
@@ -1014,3 +1038,22 @@ class Switcher:
                 serializable_entries.append(serializable_entry)
 
             json.dump(serializable_entries, f, indent=2)
+
+
+# ============================================================================
+# Pre-register built-in plugins in global registry
+# ============================================================================
+
+# Register logging plugin (always available)
+from .plugins import LoggingPlugin
+
+Switcher.register_plugin("logging", LoggingPlugin)
+
+# Register pydantic plugin if available (optional dependency)
+try:
+    from .plugins.pydantic import PydanticPlugin
+
+    Switcher.register_plugin("pydantic", PydanticPlugin)
+except ImportError:
+    # Pydantic not installed - plugin won't be available
+    pass

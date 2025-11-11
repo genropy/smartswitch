@@ -114,6 +114,30 @@ class BasePlugin:
         self._global_config = config
         self._handler_configs = {}  # {handler_name: config_override}
 
+    @property
+    def plugin_name(self) -> str:
+        """
+        Get the plugin's registration name.
+
+        By default, generates name from class name by:
+        1. Removing 'Plugin' suffix if present
+        2. Converting to lowercase
+
+        Examples:
+            PydanticPlugin -> 'pydantic'
+            MyCustomPlugin -> 'mycustom'
+            CustomValidator -> 'customvalidator'
+
+        Subclasses can override this property to provide custom names.
+
+        Returns:
+            Plugin name for registration in Switcher._plugin_registry
+        """
+        name = self.__class__.__name__
+        if name.endswith("Plugin"):
+            name = name[:-6]  # Remove 'Plugin' suffix
+        return name.lower()
+
     def configure(self, *handler_names: str, **config) -> None:
         """
         Configure plugin globally or for specific handlers.
@@ -177,6 +201,44 @@ class BasePlugin:
         """
         config = self.get_config(handler_name)
         return config.get("enabled", True)
+
+    def on_decorate(self, func: Callable, switcher: "Switcher") -> None:
+        """
+        Hook called when a function is decorated (optional).
+
+        This method is called during decoration, BEFORE wrap() is called.
+        It allows plugins to be notified of decoration events and perform
+        setup, initialization, or store metadata without necessarily wrapping
+        the function.
+
+        Args:
+            func: The handler function being decorated
+            switcher: The Switcher instance registering the handler
+
+        Note:
+            This is an optional hook. BasePlugin provides a no-op implementation.
+            Subclasses can override to add custom behavior.
+
+        Example:
+            >>> class MetadataPlugin(BasePlugin):
+            ...     def __init__(self, **config):
+            ...         super().__init__(**config)
+            ...         self.decorated_funcs = []
+            ...
+            ...     def on_decorate(self, func, switcher):
+            ...         # Store metadata about decorated function
+            ...         self.decorated_funcs.append({
+            ...             'name': func.__name__,
+            ...             'module': func.__module__,
+            ...             'doc': func.__doc__
+            ...         })
+            ...
+            ...     def _wrap_handler(self, func, switcher):
+            ...         # No wrapping needed
+            ...         return func
+        """
+        # No-op by default - subclasses can override
+        pass
 
     def wrap(self, func: Callable, switcher: "Switcher") -> Callable:
         """
