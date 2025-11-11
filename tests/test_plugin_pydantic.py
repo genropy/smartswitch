@@ -298,3 +298,142 @@ class TestPydanticPluginStacking:
         # that wrapper. When pydantic raises, the call never reaches the logging wrapper.
         history = sw.logger.history()
         assert len(history) == 0  # No call logged because validation failed
+
+
+class TestPydanticPluginConfigure:
+    """Test BasePlugin configure() functionality with Pydantic."""
+
+    def test_disable_globally(self):
+        """Test disabling validation globally via configure()."""
+        sw = Switcher().plug("pydantic")
+
+        @sw
+        def strict_func(x: int) -> int:
+            return x * 2
+
+        # Initially validation is active - should raise
+        with pytest.raises(ValidationError):
+            sw("strict_func")("not a number")
+
+        # Disable validation globally
+        sw.pydantic.configure(enabled=False)
+
+        # Now validation is bypassed - string passes through
+        # String * 2 in Python = concatenation, not TypeError
+        result = sw("strict_func")("hello")
+        assert result == "hellohello"
+
+    def test_disable_specific_handler(self):
+        """Test disabling validation for specific handler."""
+        sw = Switcher().plug("pydantic")
+
+        @sw
+        def handler1(x: int) -> int:
+            return x * 2
+
+        @sw
+        def handler2(x: int) -> int:
+            return x * 3
+
+        # Both validate initially
+        assert sw("handler1")(5) == 10
+        assert sw("handler2")(5) == 15
+
+        # Disable validation only for handler1
+        sw.pydantic.configure("handler1", enabled=False)
+
+        # handler1 no longer validates (passes string through)
+        result = sw("handler1")("abc")
+        assert result == "abcabc"  # String * 2
+
+        # handler2 still validates
+        with pytest.raises(ValidationError):
+            sw("handler2")("not a number")
+
+    def test_re_enable_handler(self):
+        """Test re-enabling validation after disabling."""
+        sw = Switcher().plug("pydantic")
+
+        @sw
+        def my_func(x: int) -> int:
+            return x * 2
+
+        # Initially validates
+        with pytest.raises(ValidationError):
+            sw("my_func")("invalid")
+
+        # Disable - validation bypassed
+        sw.pydantic.configure("my_func", enabled=False)
+        result = sw("my_func")("test")
+        assert result == "testtest"  # No validation
+
+        # Re-enable
+        sw.pydantic.configure("my_func", enabled=True)
+        with pytest.raises(ValidationError):  # Validation is back
+            sw("my_func")("invalid")
+
+    def test_configure_multiple_handlers(self):
+        """Test configuring multiple handlers at once."""
+        sw = Switcher().plug("pydantic")
+
+        @sw
+        def func1(x: int) -> int:
+            return x * 2
+
+        @sw
+        def func2(x: int) -> int:
+            return x * 3
+
+        @sw
+        def func3(x: int) -> int:
+            return x * 4
+
+        # Disable validation for func1 and func2 only
+        sw.pydantic.configure("func1", "func2", enabled=False)
+
+        # func1 and func2 don't validate - strings pass through
+        assert sw("func1")("x") == "xx"
+        assert sw("func2")("y") == "yyy"
+
+        # func3 still validates
+        with pytest.raises(ValidationError):
+            sw("func3")("invalid")
+
+    def test_get_config(self):
+        """Test get_config() returns correct merged configuration."""
+        sw = Switcher().plug("pydantic", global_param="global_value")
+
+        @sw
+        def handler1(x: int) -> int:
+            return x
+
+        # Global config
+        config = sw.pydantic.get_config("handler1")
+        assert config["global_param"] == "global_value"
+        assert config.get("enabled", True) is True
+
+        # Override for specific handler
+        sw.pydantic.configure("handler1", handler_param="handler_value", enabled=False)
+        config = sw.pydantic.get_config("handler1")
+        assert config["global_param"] == "global_value"  # Still has global
+        assert config["handler_param"] == "handler_value"  # Has override
+        assert config["enabled"] is False  # Override wins
+
+    def test_is_enabled(self):
+        """Test is_enabled() method."""
+        sw = Switcher().plug("pydantic")
+
+        @sw
+        def my_handler(x: int) -> int:
+            return x
+
+        # Initially enabled
+        assert sw.pydantic.is_enabled("my_handler") is True
+
+        # Disable
+        sw.pydantic.configure("my_handler", enabled=False)
+        assert sw.pydantic.is_enabled("my_handler") is False
+
+        # Re-enable
+        sw.pydantic.configure("my_handler", enabled=True)
+        assert sw.pydantic.is_enabled("my_handler") is True

@@ -1,11 +1,12 @@
 """
-SmartSwitch Plugin Protocol.
+SmartSwitch Plugin Protocol and Base Class.
 
-Defines the protocol that all SmartSwitch plugins must implement.
-Plugins can extend Switcher functionality by wrapping handlers during registration.
+Defines the protocol that all SmartSwitch plugins must implement,
+and provides a base class with common functionality.
 """
 
-from typing import TYPE_CHECKING, Callable, Protocol
+from functools import wraps
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 if TYPE_CHECKING:
     from .core import Switcher
@@ -74,3 +75,170 @@ class SwitcherPlugin(Protocol):
             ...         return func  # Pass through if no type rule
         """
         ...
+
+
+class BasePlugin:
+    """
+    Base class for SmartSwitch plugins with common functionality.
+
+    Provides:
+    - Global and per-handler configuration management
+    - Enable/disable functionality via `enabled` parameter
+    - Automatic configuration merging (global + handler-specific)
+
+    Subclasses should override `_wrap_handler()` to implement their
+    specific wrapping logic.
+
+    Example:
+        >>> class MyPlugin(BasePlugin):
+        ...     def _wrap_handler(self, func, switcher, config):
+        ...         @wraps(func)
+        ...         def wrapper(*args, **kwargs):
+        ...             if config.get('debug'):
+        ...                 print(f"Calling {func.__name__}")
+        ...             return func(*args, **kwargs)
+        ...         return wrapper
+        ...
+        >>> sw = Switcher().plug(MyPlugin(debug=False))
+        >>> sw.my_plugin.configure("handler1", debug=True)  # Enable only for handler1
+    """
+
+    def __init__(self, **config):
+        """
+        Initialize plugin with global configuration.
+
+        Args:
+            **config: Global configuration parameters. All plugins support
+                     'enabled' parameter to disable/enable the plugin.
+        """
+        self._global_config = config
+        self._handler_configs = {}  # {handler_name: config_override}
+
+    def configure(self, *handler_names: str, **config) -> None:
+        """
+        Configure plugin globally or for specific handlers.
+
+        Without handler names, updates global configuration.
+        With handler names, creates/updates handler-specific overrides.
+
+        Args:
+            *handler_names: Optional handler names to configure specifically.
+                           If empty, configures globally.
+            **config: Configuration parameters to set. Use `enabled=True/False`
+                     to enable/disable the plugin for specific handlers.
+
+        Examples:
+            Global configuration:
+                >>> plugin.configure(debug=True)
+
+            Handler-specific configuration:
+                >>> plugin.configure("handler1", "handler2", enabled=False)
+                >>> plugin.configure("api_endpoint", timeout=30, strict=True)
+
+            Re-enable after disabling:
+                >>> plugin.configure("handler1", enabled=True)
+        """
+        if not handler_names:
+            # Global configuration update
+            self._global_config.update(config)
+        else:
+            # Handler-specific configuration
+            for name in handler_names:
+                if name not in self._handler_configs:
+                    self._handler_configs[name] = {}
+                self._handler_configs[name].update(config)
+
+    def get_config(self, handler_name: str) -> dict[str, Any]:
+        """
+        Get effective configuration for a handler.
+
+        Merges global config with handler-specific overrides.
+
+        Args:
+            handler_name: Name of the handler
+
+        Returns:
+            Merged configuration dictionary (global + handler-specific)
+        """
+        config = self._global_config.copy()
+        if handler_name in self._handler_configs:
+            config.update(self._handler_configs[handler_name])
+        return config
+
+    def is_enabled(self, handler_name: str) -> bool:
+        """
+        Check if plugin is enabled for a specific handler.
+
+        Args:
+            handler_name: Name of the handler
+
+        Returns:
+            True if enabled, False if disabled via `enabled=False`
+        """
+        config = self.get_config(handler_name)
+        return config.get("enabled", True)
+
+    def wrap(self, func: Callable, switcher: "Switcher") -> Callable:
+        """
+        Wrap handler with configuration-aware logic.
+
+        This method handles the enable/disable check and passes control
+        to the subclass-specific `_wrap_handler()` method.
+
+        Args:
+            func: Handler function to wrap
+            switcher: Switcher instance
+
+        Returns:
+            Wrapped function (or original if disabled)
+        """
+        handler_name = func.__name__
+
+        # Get wrapped function from subclass
+        wrapped_func = self._wrap_handler(func, switcher)
+
+        @wraps(func)
+        def config_aware_wrapper(*args, **kwargs):
+            """Wrapper that checks enabled status at call time."""
+            # Check if plugin is enabled for this handler
+            if self.is_enabled(handler_name):
+                return wrapped_func(*args, **kwargs)
+            else:
+                # Plugin disabled - call original function directly
+                return func(*args, **kwargs)
+
+        return config_aware_wrapper
+
+    def _wrap_handler(
+        self, func: Callable, switcher: "Switcher"
+    ) -> Callable:
+        """
+        Wrap handler with plugin-specific logic.
+
+        Subclasses must override this method to implement their wrapping logic.
+        This method should return a wrapped version of the function that
+        implements the plugin's functionality.
+
+        The wrapped function can access handler-specific configuration via
+        `self.get_config(func.__name__)`.
+
+        Args:
+            func: Handler function to wrap
+            switcher: Switcher instance
+
+        Returns:
+            Wrapped function implementing plugin logic
+
+        Example:
+            >>> def _wrap_handler(self, func, switcher):
+            ...     config = self.get_config(func.__name__)
+            ...     @wraps(func)
+            ...     def wrapper(*args, **kwargs):
+            ...         if config.get('log_calls'):
+            ...             print(f"Calling {func.__name__}")
+            ...         return func(*args, **kwargs)
+            ...     return wrapper
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement _wrap_handler()"
+        )

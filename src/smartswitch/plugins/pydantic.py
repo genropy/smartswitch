@@ -22,8 +22,10 @@ except ImportError:
         "Install with: pip install smartswitch[pydantic]"
     )
 
+from ..plugin import BasePlugin
 
-class PydanticPlugin:
+
+class PydanticPlugin(BasePlugin):
     """
     Plugin that adds Pydantic validation to handlers based on type hints.
 
@@ -43,11 +45,12 @@ class PydanticPlugin:
         Initialize the Pydantic validation plugin.
 
         Args:
-            **config: Configuration options (reserved for future use)
+            **config: Configuration options for the plugin.
+                     Common: enabled=True/False to enable/disable globally
         """
-        self.config = config
+        super().__init__(**config)
 
-    def wrap(self, func: Callable, switcher: Any) -> Callable:
+    def _wrap_handler(self, func: Callable, switcher: Any) -> Callable:
         """
         Wrap a function with Pydantic validation.
 
@@ -134,13 +137,3 @@ class PydanticPlugin:
                 ) from e
 
         return wrapper
-
-
-def register_plugin(switcher: Any) -> None:
-    """
-    Register the pydantic plugin with a Switcher instance.
-
-    Args:
-        switcher: The Switcher instance to register with
-    """
-    switcher.plug("pydantic", PydanticPlugin())
