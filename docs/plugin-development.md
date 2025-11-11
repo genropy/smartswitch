@@ -4,6 +4,14 @@
 
 SmartSwitch supports a flexible plugin system that allows you to extend handler functionality. Plugins can add logging, monitoring, type checking, async support, or any other cross-cutting concern.
 
+> **📖 Deep Dive**: For a comprehensive understanding of the middleware pattern behind plugins, including detailed execution flow diagrams and the reference LoggingPlugin implementation, see the [Middleware Pattern Guide](middleware-pattern.md).
+
+## Quick Links
+
+- **[Middleware Pattern](middleware-pattern.md)** - Understand the bidirectional execution flow (onCalling/onCalled)
+- **[Plugin Naming Guidelines](#plugin-naming)** - How to name your plugins correctly
+- **[LoggingPlugin as Reference](middleware-pattern.md#reference-implementation-loggingplugin)** - Use this as your template
+
 ## The Plugin Protocol
 
 All plugins must implement the `SwitcherPlugin` protocol:
@@ -30,17 +38,86 @@ class SwitcherPlugin(Protocol):
 
 ## Plugin Naming
 
-Your plugin should define a class attribute `plugin_name` that specifies the default name used to access the plugin:
+### Core Principle: Name by Function, Not Framework
+
+**IMPORTANT**: Plugin names should describe **what the plugin does**, not that it's a SmartSwitch plugin.
+
+**❌ BAD** - Names reference SmartSwitch:
 
 ```python
-class MyPlugin:
-    # Default name for sw.myplugin.method() access
-    plugin_name = "myplugin"
+class SmartSwitchLoggerPlugin:
+    plugin_name = "smartswitch-logger"  # ❌ Redundant!
 
-    def wrap(self, func, switcher):
-        # Your implementation
-        return func
+class SwitcherMetricsPlugin:
+    plugin_name = "switcher-metrics"    # ❌ Redundant!
 ```
+
+**✅ GOOD** - Names describe functionality:
+
+```python
+class LoggingPlugin:
+    plugin_name = "logger"    # ✅ Clear: logs things
+
+class MetricsPlugin:
+    plugin_name = "metrics"   # ✅ Clear: tracks metrics
+
+class CachePlugin:
+    plugin_name = "cache"     # ✅ Clear: caches results
+
+class AsyncPlugin:
+    plugin_name = "async"     # ✅ Clear: async support
+```
+
+### Why This Matters
+
+The `plugin_name` becomes the attribute for accessing the plugin:
+
+```python
+# Good naming
+sw = Switcher().plug('logging')
+sw.logger.history()           # ✅ Reads naturally
+
+# Bad naming (redundant)
+sw = Switcher().plug('smartswitch-logger')
+sw.smartswitch-logger.history()  # ❌ We know it's SmartSwitch!
+```
+
+### External Package Naming
+
+When publishing plugin packages to PyPI:
+
+**Package name** (PyPI): Can reference ecosystem for discoverability
+
+- ✅ `smartasync` - OK for PyPI package name
+- ✅ `gtext-cache` - OK for PyPI package name
+
+**Plugin name** (in code): Should describe functionality only
+
+- ✅ `plugin_name = "async"` - Clean attribute access
+- ✅ `plugin_name = "cache"` - Clean attribute access
+
+**Example**:
+
+```python
+# Package on PyPI: "smartasync"
+# pip install smartasync
+
+from smartasync import SmartAsyncPlugin
+
+class SmartAsyncPlugin:
+    plugin_name = "async"  # ✅ Not "smartasync"!
+
+# Usage
+sw = Switcher().plug(SmartAsyncPlugin())
+sw.async.is_async('my_handler')  # ✅ Clean attribute name
+```
+
+### Naming Guidelines Summary
+
+1. **plugin_name**: Describes functionality (e.g., `"logger"`, `"cache"`, `"metrics"`)
+2. **Class name**: Can reference ecosystem (e.g., `SmartAsyncPlugin`, `GtextCachePlugin`)
+3. **PyPI package**: Can reference ecosystem (e.g., `smartasync`, `gtext-cache`)
+4. **Attribute access**: Uses `plugin_name`, should be clean and concise
 
 ## Basic Plugin Example
 

@@ -34,9 +34,11 @@ dev = [
     "mypy>=1.0.0",
 ]
 docs = [
-    "mkdocs>=1.5.0",
-    "mkdocs-material>=9.0.0",
-    "mkdocstrings[python]>=0.24.0",
+    "sphinx>=8.0.0",
+    "sphinx-rtd-theme>=3.0.0",
+    "sphinx-autodoc-typehints>=3.0.0",
+    "myst-parser>=4.0.0",
+    "sphinxcontrib-mermaid>=1.0.0",
 ]
 all = [
     "pytest>=7.0.0",
@@ -44,9 +46,11 @@ all = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
-    "mkdocs>=1.5.0",
-    "mkdocs-material>=9.0.0",
-    "mkdocstrings[python]>=0.24.0",
+    "sphinx>=8.0.0",
+    "sphinx-rtd-theme>=3.0.0",
+    "sphinx-autodoc-typehints>=3.0.0",
+    "myst-parser>=4.0.0",
+    "sphinxcontrib-mermaid>=1.0.0",
 ]
 
 [project.urls]

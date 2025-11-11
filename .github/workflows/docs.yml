@@ -25,9 +25,10 @@ jobs:
 
     - name: Build documentation
       run: |
-        mkdocs build
+        sphinx-build -W -b html docs docs/_build/html
 
-    - name: Check links
+    - name: Check build
       run: |
-        # Add link checking if needed
+        # Verify build output exists
+        test -d docs/_build/html
         echo "Documentation built successfully"

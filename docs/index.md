@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" alt="SmartSwitch Logo" width="200"/>
+  <img src="_static/logo.png" alt="SmartSwitch Logo" width="200"/>
 </div>
 
 # SmartSwitch
@@ -247,10 +247,56 @@ Then check out the [Quick Start Guide](user-guide/quickstart.md) to begin using 
 
 ## Documentation
 
-- [Installation](user-guide/installation.md)
-- [Quick Start](user-guide/quickstart.md)
-- [Basic Usage](user-guide/basic.md)
-- [Examples](examples/index.md)
+```{toctree}
+:maxdepth: 2
+:caption: Getting Started
+
+user-guide/installation
+user-guide/quickstart
+user-guide/basic
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: User Guide
+
+guide/named-handlers
+guide/api-discovery
+guide/valrules
+guide/typerules
+guide/logging
+guide/best-practices
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Plugin System
+
+plugin-development
+guide/middleware-pattern
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Examples
+
+examples/index
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: API Reference
+
+api/switcher
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Advanced
+
+appendix/architecture
+appendix/vs-match
+```
 
 ## License
 
