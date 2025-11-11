@@ -12,9 +12,6 @@ authors = [
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-dependencies = [
-    "smartseeds>=0.1.0",
-]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

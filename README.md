@@ -25,7 +25,6 @@ Replace messy if-elif chains and duplicated logic with clean, maintainable funct
 pip install smartswitch
 ```
 
-SmartSwitch is part of the [smart* ecosystem](https://github.com/genropy) and uses [smartseeds](https://github.com/genropy/smartseeds) for shared utilities.
 
 ## The Problem-Solution Approach
 
