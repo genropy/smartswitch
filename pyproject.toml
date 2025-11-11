@@ -40,6 +40,9 @@ docs = [
     "myst-parser>=4.0.0",
     "sphinxcontrib-mermaid>=1.0.0",
 ]
+pydantic = [
+    "pydantic>=2.0.0",
+]
 all = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -51,6 +54,7 @@ all = [
     "sphinx-autodoc-typehints>=3.0.0",
     "myst-parser>=4.0.0",
     "sphinxcontrib-mermaid>=1.0.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.urls]

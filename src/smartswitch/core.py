@@ -215,7 +215,7 @@ class Switcher:
         Lookup and instantiate a standard plugin by name.
 
         Args:
-            name: Plugin name ('logging', 'typerule', 'valrule')
+            name: Plugin name ('logging', 'typerule', 'valrule', 'pydantic')
             **kwargs: Plugin configuration parameters
 
         Returns:
@@ -231,6 +231,18 @@ class Switcher:
             # "typerule": TypeRulePlugin,  # TODO: Implement
             # "valrule": ValueRulePlugin,   # TODO: Implement
         }
+
+        # Optional plugins (require extra dependencies)
+        if name == "pydantic":
+            try:
+                from .plugins.pydantic import PydanticPlugin
+
+                registry["pydantic"] = PydanticPlugin
+            except ImportError as e:
+                raise ImportError(
+                    f"Pydantic plugin requires pydantic. "
+                    f"Install with: pip install smartswitch[pydantic]"
+                ) from e
 
         if name not in registry:
             available = ", ".join(registry.keys())

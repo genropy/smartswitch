@@ -1,0 +1,146 @@
+"""
+Pydantic validation plugin for SmartSwitch.
+
+This plugin automatically validates function arguments using type hints via Pydantic v2.
+Requires: pip install smartswitch[pydantic]
+
+MVP Support:
+- Basic types: str, int, float, bool
+- Optional and default values
+- Complex types: List, Dict, Set, Tuple
+- Existing Pydantic BaseModel instances
+"""
+
+from functools import wraps
+from typing import Any, Callable, get_type_hints
+
+try:
+    from pydantic import BaseModel, ValidationError, create_model
+except ImportError:
+    raise ImportError(
+        "Pydantic plugin requires pydantic. "
+        "Install with: pip install smartswitch[pydantic]"
+    )
+
+
+class PydanticPlugin:
+    """
+    Plugin that adds Pydantic validation to handlers based on type hints.
+
+    Usage:
+        sw = Switcher().plug("pydantic")
+
+        @sw.typerule(x=int, y=int)
+        def add(x: int, y: str) -> int:  # Will validate types at runtime
+            return x + int(y)
+
+    The plugin extracts type hints from decorated functions and validates
+    arguments before calling the function. Raises ValidationError on failure.
+    """
+
+    def __init__(self, **config):
+        """
+        Initialize the Pydantic validation plugin.
+
+        Args:
+            **config: Configuration options (reserved for future use)
+        """
+        self.config = config
+
+    def wrap(self, func: Callable, switcher: Any) -> Callable:
+        """
+        Wrap a function with Pydantic validation.
+
+        Args:
+            func: The function to wrap
+            switcher: The Switcher instance (unused in MVP)
+
+        Returns:
+            Wrapped function that validates arguments before execution
+        """
+        # Get type hints (resolved with string annotations)
+        try:
+            hints = get_type_hints(func)
+        except Exception:
+            # If type hints can't be resolved, skip validation
+            return func
+
+        # Remove return type hint
+        hints.pop("return", None)
+
+        # If no type hints to validate, return original function
+        if not hints:
+            return func
+
+        # Create a Pydantic model dynamically from type hints
+        # Use function signature to get defaults
+        import inspect
+
+        sig = inspect.signature(func)
+        fields = {}
+
+        for param_name, hint in hints.items():
+            param = sig.parameters.get(param_name)
+            if param is None:
+                # Parameter not in signature (shouldn't happen)
+                fields[param_name] = (hint, ...)
+            elif param.default is inspect.Parameter.empty:
+                # Required parameter
+                fields[param_name] = (hint, ...)
+            else:
+                # Optional parameter with default
+                fields[param_name] = (hint, param.default)
+
+        # Create validation model
+        ValidationModel = create_model(f"{func.__name__}_Model", **fields)
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            """Validate arguments before calling function."""
+            # Build dict of all arguments
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+
+            # Split arguments into those with hints and those without
+            args_to_validate = {k: v for k, v in bound.arguments.items() if k in hints}
+            args_without_hints = {
+                k: v for k, v in bound.arguments.items() if k not in hints
+            }
+
+            # Validate using Pydantic
+            try:
+                validated = ValidationModel(**args_to_validate)
+
+                # Merge validated args with unvalidated args
+                # For BaseModel instances, keep the validated object, not the dict
+                final_args = args_without_hints.copy()
+                for key, value in validated:
+                    # Check if original input was already a BaseModel instance
+                    original_value = args_to_validate.get(key)
+                    if isinstance(original_value, BaseModel):
+                        # Keep the original BaseModel instance
+                        final_args[key] = original_value
+                    else:
+                        # Use validated value
+                        final_args[key] = value
+
+                # Call original function with all arguments
+                return func(**final_args)
+            except ValidationError as e:
+                # Re-raise with more context
+                raise ValidationError.from_exception_data(
+                    title=f"Validation error in {func.__name__}",
+                    line_errors=e.errors(),
+                ) from e
+
+        return wrapper
+
+
+def register_plugin(switcher: Any) -> None:
+    """
+    Register the pydantic plugin with a Switcher instance.
+
+    Args:
+        switcher: The Switcher instance to register with
+    """
+    switcher.plug("pydantic", PydanticPlugin())

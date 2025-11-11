@@ -5,7 +5,7 @@ Provides type-based automatic dispatch for SmartSwitch handlers.
 """
 
 import inspect
-from typing import Any, Callable, Union, get_args, get_origin, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Union, get_args, get_origin
 
 if TYPE_CHECKING:
     from ..core import Switcher
@@ -227,7 +227,6 @@ class TypeRulePlugin:
         Returns:
             True if all type checks pass
         """
-        sig = rule["signature"]
         param_names = rule["param_names"]
         type_checks = rule["type_checks"]
 

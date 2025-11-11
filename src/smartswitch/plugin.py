@@ -5,7 +5,7 @@ Defines the protocol that all SmartSwitch plugins must implement.
 Plugins can extend Switcher functionality by wrapping handlers during registration.
 """
 
-from typing import Callable, Protocol, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Protocol
 
 if TYPE_CHECKING:
     from .core import Switcher

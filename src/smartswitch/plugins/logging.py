@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from functools import wraps
-from typing import Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from ..core import Switcher
