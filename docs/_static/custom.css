@@ -2,3 +2,32 @@
 .wy-nav-content {
     max-width: none !important;
 }
+
+/* Make logo and search box sticky at top of sidebar */
+.wy-side-scroll {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Keep logo and search fixed */
+.wy-side-nav-search {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    flex-shrink: 0;
+}
+
+/* Limit logo height to preserve scroll space */
+.wy-side-nav-search a.icon img.logo,
+.wy-side-nav-search .wy-dropdown > a img.logo {
+    max-height: 80px;
+    width: auto;
+}
+
+/* Make navigation menu scrollable */
+.wy-menu-vertical {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
