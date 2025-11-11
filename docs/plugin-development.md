@@ -36,6 +36,216 @@ class SwitcherPlugin(Protocol):
         ...
 ```
 
+## Plugin Lifecycle (v0.6.0+)
+
+**New in v0.6.0**: SmartSwitch plugins now have a complete lifecycle with three distinct phases.
+
+### Understanding the Three Phases
+
+SmartSwitch plugins operate in **three distinct phases**:
+
+#### Phase 1: Decoration (Happens ONCE when `@sw` is applied)
+
+When you decorate a function with `@sw`, SmartSwitch calls each plugin twice:
+
+1. **`on_decorate(func, switcher)`** - Setup phase (NEW in v0.6.0)
+   - Called BEFORE wrap()
+   - Receives the **original unwrapped function**
+   - Used for expensive setup (creating models, compiling regexes, etc.)
+   - Can store metadata in `func._plugin_meta` for other plugins
+
+2. **`wrap(func, switcher)`** - Wrapping phase
+   - Called AFTER on_decorate()
+   - Can read metadata from `func._plugin_meta`
+   - Returns wrapped or original function
+
+**Example:**
+```python
+@sw
+def my_handler(x: int) -> str:
+    return str(x)
+
+# Internally SmartSwitch does:
+# 1. my_handler._plugin_meta = {}
+# 2. For each plugin:
+#    - plugin.on_decorate(my_handler, sw)
+#    - wrapped = plugin.wrap(wrapped, sw)
+```
+
+#### Phase 2: Call (Happens EVERY TIME the function is called)
+
+When you call the handler, the wrapper chain executes:
+
+```python
+result = sw("my_handler")(42)
+
+# Execution flow:
+# Plugin3.wrapper(
+#   Plugin2.wrapper(
+#     Plugin1.wrapper(
+#       original_func(42)
+#     )
+#   )
+# )
+```
+
+#### Phase 3: Exit (Happens EVERY TIME, on return or exception)
+
+The return value (or exception) propagates back through the wrapper chain, allowing each plugin to:
+- Log the result
+- Transform the return value
+- Handle exceptions
+- Clean up resources
+
+### The `on_decorate()` Hook
+
+**New in v0.6.0**: Optional hook called during decoration, before wrapping.
+
+```python
+from smartswitch import BasePlugin
+
+class MyPlugin(BasePlugin):
+    def on_decorate(self, func: Callable, switcher: "Switcher") -> None:
+        """
+        Called ONCE during decoration, BEFORE wrap().
+
+        Use this to:
+        - Analyze function signature, type hints, docstring
+        - Prepare expensive resources (models, compiled patterns, etc.)
+        - Store metadata for other plugins
+        """
+        # Access function metadata
+        import inspect
+        from typing import get_type_hints
+
+        sig = inspect.signature(func)
+        hints = get_type_hints(func)
+
+        # Store for use by this plugin and others
+        func._plugin_meta["my_plugin"] = {
+            "signature": sig,
+            "hints": hints,
+            "analyzed": True
+        }
+
+    def _wrap_handler(self, func: Callable, switcher: "Switcher") -> Callable:
+        """
+        Called AFTER on_decorate().
+
+        Can read metadata prepared in on_decorate().
+        """
+        # Read pre-prepared metadata
+        meta = func._plugin_meta.get("my_plugin", {})
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Use metadata during execution
+            if meta.get("analyzed"):
+                # Do something with prepared data
+                pass
+            return func(*args, **kwargs)
+
+        return wrapper
+```
+
+### Metadata Sharing Between Plugins
+
+**New in v0.6.0**: Plugins can share metadata via `func._plugin_meta`.
+
+**Convention**: Each plugin uses its own key (usually `plugin_name`) as namespace.
+
+```python
+class PydanticPlugin(BasePlugin):
+    def on_decorate(self, func, switcher):
+        # Create Pydantic model from type hints
+        hints = get_type_hints(func)
+        ValidationModel = create_model(f"{func.__name__}_Model", **hints)
+
+        # Store for other plugins to read
+        func._plugin_meta["pydantic"] = {
+            "model": ValidationModel,
+            "hints": hints
+        }
+
+class FastAPIPlugin(BasePlugin):
+    def on_decorate(self, func, switcher):
+        # Read Pydantic metadata from previous plugin
+        pydantic_meta = func._plugin_meta.get("pydantic", {})
+
+        if pydantic_meta:
+            # Use pre-created Pydantic model for FastAPI
+            model = pydantic_meta["model"]
+            self.app.post(f"/{func.__name__}", response_model=model)(func)
+
+# Usage - order matters!
+sw = Switcher().plug("pydantic").plug(FastAPIPlugin(app))
+```
+
+**Key Points:**
+- Metadata is shared via `func._plugin_meta` dictionary
+- Each plugin should use its own namespace (key)
+- Later plugins can read earlier plugins' metadata
+- Plugin order matters for metadata dependencies
+
+### BasePlugin Class
+
+**Recommended**: Inherit from `BasePlugin` for common functionality.
+
+```python
+from smartswitch import BasePlugin
+
+class MyPlugin(BasePlugin):
+    """BasePlugin provides:
+    - plugin_name property (auto-generated from class name)
+    - configure() for per-handler configuration
+    - get_config() and is_enabled() utilities
+    - Default no-op on_decorate() implementation
+    """
+
+    def __init__(self, **config):
+        super().__init__(**config)
+        # Your initialization
+
+    def on_decorate(self, func, switcher):
+        # Optional setup phase
+        pass
+
+    def _wrap_handler(self, func, switcher):
+        # Required wrapping logic
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
+```
+
+**Benefits of BasePlugin:**
+- Automatic `plugin_name` generation (removes "Plugin" suffix, lowercase)
+- Per-handler configuration via `configure()`
+- Enable/disable functionality built-in
+- No-op `on_decorate()` provided (override if needed)
+
+### Global Plugin Registry
+
+**New in v0.6.0**: Register plugins globally for string-based loading.
+
+```python
+from smartswitch import Switcher, BasePlugin
+
+class MyCustomPlugin(BasePlugin):
+    def _wrap_handler(self, func, switcher):
+        return func
+
+# Register globally
+Switcher.register_plugin("custom", MyCustomPlugin)
+
+# Now usable by string name everywhere
+sw = Switcher().plug("custom")
+```
+
+Built-in plugins are pre-registered:
+- `"logging"` - Call history and monitoring
+- `"pydantic"` - Type validation via Pydantic models
+
 ## Plugin Naming
 
 ### Core Principle: Name by Function, Not Framework
@@ -607,14 +817,17 @@ def wrap(self, func, switcher):
 
 ## Summary
 
-Creating a SmartSwitch plugin:
+Creating a SmartSwitch plugin (v0.6.0+):
 
-1. ✅ Create a class with `wrap(func, switcher)` method
-2. ✅ Add `plugin_name` class attribute for default access name
-3. ✅ Use `@wraps` to preserve function metadata
-4. ✅ Provide public methods for user interaction
-5. ✅ Test with multiple handlers and in combination with other plugins
-6. ✅ Document behavior and examples clearly
+1. ✅ Inherit from `BasePlugin` for common functionality
+2. ✅ Override `on_decorate(func, switcher)` for setup phase (optional)
+3. ✅ Implement `_wrap_handler(func, switcher)` for wrapping logic (required)
+4. ✅ Use `func._plugin_meta[plugin_name]` to store/share metadata
+5. ✅ Use `@wraps` to preserve function metadata
+6. ✅ Provide public methods for user interaction
+7. ✅ Test with multiple handlers and in combination with other plugins
+8. ✅ Document behavior and examples clearly
+9. ✅ Register globally with `Switcher.register_plugin()` (optional)
 
 Your plugin will integrate seamlessly with SmartSwitch's `.plug()` system and be accessible via `switcher.plugin_name.method()`.
 
