@@ -93,6 +93,8 @@ class Switcher:
         "_rules",
         "_default_handler",
         "_param_names_cache",
+        "_plugins",
+        "_plugin_registry",
         "_log_mode",
         "_log_default",
         "_log_handlers",
@@ -128,8 +130,10 @@ class Switcher:
         self._rules = []  # list of (matcher, function) tuples
         self._default_handler = None  # default catch-all handler
         self._param_names_cache = {}  # function -> param names cache
+        self._plugins = []  # List of plugins
+        self._plugin_registry = {}  # name -> plugin instance mapping
 
-        # Logging support
+        # Logging support (will be deprecated in favor of LoggingPlugin)
         self._log_mode = None  # None, 'log', 'silent', 'both'
         self._log_default = {}  # Default config: {'before': bool, 'after': bool, 'time': bool}
         self._log_handlers = {}  # {handler_name: config_dict or False}
@@ -141,6 +145,129 @@ class Switcher:
         # Set parent after initialization (triggers property setter)
         if parent is not None:
             self.parent = parent
+
+    def plug(self, plugin, name=None, **kwargs):
+        """
+        Add a plugin to this Switcher.
+
+        Plugins extend Switcher functionality by wrapping handlers during registration.
+        Standard plugins can be specified by name (string), external plugins by instance.
+
+        Args:
+            plugin: Either a plugin name (str) for standard plugins,
+                   or a plugin instance for external plugins
+            name: Custom name for plugin access (optional, uses plugin's default if not provided)
+            **kwargs: Configuration parameters (only for string names)
+
+        Returns:
+            Self for method chaining
+
+        Examples:
+            Standard plugins (by name):
+
+            >>> sw = Switcher()
+            >>> sw.plug('logging', mode='silent', time=True)
+            <Switcher...>
+            >>> sw.logger.get_log_history()  # Access via default name 'logger'
+
+            Custom plugin names:
+
+            >>> sw.plug('logging', name='mylog', mode='silent')
+            >>> sw.mylog.get_log_history()  # Access via custom name
+
+            External plugins (by class):
+
+            >>> from smartasync import SmartAsyncPlugin
+            >>> sw.plug(SmartAsyncPlugin())
+            <Switcher...>
+
+            Chaining:
+
+            >>> sw = (Switcher(name="api")
+            ...       .plug('logging', mode='log')
+            ...       .plug('typerule')
+            ...       .plug(SmartAsyncPlugin()))
+        """
+        if isinstance(plugin, str):
+            # Lookup standard plugin by name
+            plugin_name = plugin
+            plugin = self._get_standard_plugin(plugin, **kwargs)
+        else:
+            plugin_name = None
+
+        self._plugins.append(plugin)
+
+        # Register plugin by name for __getattr__ access
+        if name:
+            # Use custom name
+            self._plugin_registry[name] = plugin
+        elif hasattr(plugin, 'plugin_name'):
+            # Use plugin's default name
+            self._plugin_registry[plugin.plugin_name] = plugin
+        elif plugin_name:
+            # Fallback: use the string name used to load it
+            self._plugin_registry[plugin_name] = plugin
+
+        return self  # For chaining
+
+    def _get_standard_plugin(self, name: str, **kwargs):
+        """
+        Lookup and instantiate a standard plugin by name.
+
+        Args:
+            name: Plugin name ('logging', 'typerule', 'valrule')
+            **kwargs: Plugin configuration parameters
+
+        Returns:
+            Plugin instance
+
+        Raises:
+            ValueError: If plugin name is unknown
+        """
+        from .plugins import LoggingPlugin  # TypeRulePlugin, ValueRulePlugin
+
+        registry = {
+            "logging": LoggingPlugin,
+            # "typerule": TypeRulePlugin,  # TODO: Implement
+            # "valrule": ValueRulePlugin,   # TODO: Implement
+        }
+
+        if name not in registry:
+            available = ", ".join(registry.keys())
+            raise ValueError(f"Unknown plugin: {name}. Available: {available}")
+
+        return registry[name](**kwargs)
+
+    def __getattr__(self, name: str):
+        """
+        Enable plugin access via attribute syntax.
+
+        This allows accessing plugins by name: sw.logger.get_log_history()
+
+        Args:
+            name: Attribute name (plugin name)
+
+        Returns:
+            Plugin instance if registered
+
+        Raises:
+            AttributeError: If attribute or plugin not found
+
+        Examples:
+            >>> sw = Switcher().plug('logging', mode='silent')
+            >>> sw.logger.get_log_history()  # Access plugin by default name
+            []
+
+            >>> sw.plug('logging', name='mylog', mode='silent')
+            >>> sw.mylog.get_log_history()  # Access plugin by custom name
+            []
+        """
+        # Check if it's a registered plugin
+        if name in self._plugin_registry:
+            return self._plugin_registry[name]
+
+        # Otherwise raise standard AttributeError
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def __call__(
         self,
@@ -182,9 +309,14 @@ class Switcher:
                     f"Handler '{handler_name}' already taken by function '{existing.__name__}'"
                 )
 
-            self._handlers[handler_name] = arg
-            self._default_handler = arg
-            return arg
+            # Apply plugins
+            wrapped = arg
+            for plugin in self._plugins:
+                wrapped = plugin.wrap(wrapped, self)
+
+            self._handlers[handler_name] = wrapped
+            self._default_handler = wrapped
+            return wrapped
 
         # Case 2: @switch('alias') - register with custom name OR lookup
         if isinstance(arg, str) and typerule is None and valrule is None:
