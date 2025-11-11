@@ -311,6 +311,60 @@ def process_generic(method, amount, details):
 - 🐛 **[Error tracking](https://smartswitch.readthedocs.io/guide/logging/#error-tracking)**: Filter and analyze failed executions
 - 🤫 **[Silent mode](https://smartswitch.readthedocs.io/guide/logging/#silent-mode-default)**: Zero-overhead history tracking for production
 
+### Plugin System (NEW in v0.5.0)
+
+- 🔌 **[Extensible architecture](docs/plugin-development.md)**: Add custom functionality via plugins
+- 🎨 **[Clean API](docs/plugin-development.md#plugin-naming)**: Access plugins via `sw.plugin_name.method()` pattern
+- 🧩 **[Composable](docs/plugin-development.md#chaining-multiple-plugins)**: Chain multiple plugins together seamlessly
+- 📦 **[Standard plugins](docs/plugin-development.md#standard-vs-external-plugins)**: Built-in logging, type rules, value rules
+- 🌐 **[External plugins](docs/plugin-development.md#creating-an-external-plugin-package)**: Third-party packages can extend functionality
+
+**Using plugins:**
+```python
+from smartswitch import Switcher
+
+# Standard plugin (built-in)
+sw = Switcher().plug('logging', mode='silent', time=True)
+
+@sw
+def my_handler(x):
+    return x * 2
+
+sw('my_handler')(5)
+
+# Access plugin via attribute
+sw.logger.history()           # Get call history
+sw.logger.history(slowest=5)  # 5 slowest calls
+sw.logger.clear()             # Clear history
+```
+
+**External plugins:**
+```python
+from smartswitch import Switcher
+from smartasync import SmartAsyncPlugin
+
+# Add external plugin
+sw = Switcher().plug(SmartAsyncPlugin())
+
+@sw
+async def fetch_data(url: str):
+    # async implementation
+    pass
+
+# Plugin methods accessible
+sw.async_support.is_async('fetch_data')  # True
+```
+
+**Chaining plugins:**
+```python
+sw = (Switcher()
+      .plug('logging', mode='silent')
+      .plug(SmartAsyncPlugin())
+      .plug(YourCustomPlugin()))
+```
+
+See the [Plugin Development Guide](docs/plugin-development.md) for creating your own plugins.
+
 **Organizing multiple Switchers in a class:**
 ```python
 from smartswitch import Switcher
@@ -362,6 +416,7 @@ See the [API Discovery Guide](https://smartswitch.readthedocs.io/guide/api-disco
 - [Named Handlers](https://smartswitch.readthedocs.io/guide/named-handlers/) - Direct handler access
 - [API Discovery](https://smartswitch.readthedocs.io/guide/api-discovery/) - Introspection and hierarchies
 - [Logging](https://smartswitch.readthedocs.io/guide/logging/) - History tracking and performance analysis (NEW in v0.4.0)
+- [Plugin Development](docs/plugin-development.md) - Create your own plugins (NEW in v0.5.0)
 - [Best Practices](https://smartswitch.readthedocs.io/guide/best-practices/) - Production patterns
 - [API Reference](https://smartswitch.readthedocs.io/api/switcher/) - Complete API docs
 
