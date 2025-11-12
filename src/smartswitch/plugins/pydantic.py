@@ -94,11 +94,11 @@ class PydanticPlugin(BasePlugin):
                 fields[param_name] = (hint, param.default)
 
         # Create validation model
-        ValidationModel = create_model(f"{func.__name__}_Model", **fields)
+        validation_model = create_model(f"{func.__name__}_Model", **fields)
 
         # Store model and metadata for use by this and other plugins
         func._plugin_meta["pydantic"] = {
-            "model": ValidationModel,
+            "model": validation_model,
             "hints": hints,
             "signature": sig,
         }
@@ -123,7 +123,7 @@ class PydanticPlugin(BasePlugin):
             # No validation model - return original function
             return func
 
-        ValidationModel = pydantic_meta["model"]
+        validation_model = pydantic_meta["model"]
         hints = pydantic_meta["hints"]
         sig = pydantic_meta["signature"]
 
@@ -142,7 +142,7 @@ class PydanticPlugin(BasePlugin):
 
             # Validate using Pydantic
             try:
-                validated = ValidationModel(**args_to_validate)
+                validated = validation_model(**args_to_validate)
 
                 # Merge validated args with unvalidated args
                 # For BaseModel instances, keep the validated object, not the dict

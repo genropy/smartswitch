@@ -1045,13 +1045,13 @@ class Switcher:
 # ============================================================================
 
 # Register logging plugin (always available)
-from .plugins import LoggingPlugin
+from .plugins import LoggingPlugin  # noqa: E402
 
 Switcher.register_plugin("logging", LoggingPlugin)
 
 # Register pydantic plugin if available (optional dependency)
 try:
-    from .plugins.pydantic import PydanticPlugin
+    from .plugins.pydantic import PydanticPlugin  # noqa: E402
 
     Switcher.register_plugin("pydantic", PydanticPlugin)
 except ImportError:
