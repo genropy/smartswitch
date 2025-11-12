@@ -418,6 +418,8 @@ except TypeError as e:
 
 ## Version History
 
+- **0.6.0**: Added plugin lifecycle hooks (`on_decorate()`), metadata sharing (`func._plugin_meta`)
+- **0.5.0**: Added plugin system with `BasePlugin`, global registry, PydanticPlugin
 - **0.4.0**: Added logging, history tracking, performance analysis
 - **0.3.1**: Added dot notation for hierarchical access
 - **0.3.0**: Added `entries()` method, hierarchical structures

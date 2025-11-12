@@ -158,8 +158,12 @@ See additional files in llm-docs/:
 - **API-DETAILS.md**: Complete API reference
 - **PATTERNS.md**: Real-world usage patterns
 
+For complete documentation including plugin system (v0.5.0+), see `docs/` directory:
+- Core features: `docs/guide/`
+- Plugin system: `docs/plugins/` (development, middleware, logging)
+
 ## Version
-Current: 0.4.0 (Python 3.10+)
+Current: 0.6.0 (Python 3.10+)
 
 ## Performance
 ~2μs dispatch overhead. Negligible for typical business logic (DB, API calls, etc.)
