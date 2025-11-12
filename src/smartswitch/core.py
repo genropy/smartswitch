@@ -232,7 +232,7 @@ class Switcher:
         if name:
             # Use custom name
             self._plugin_registry[name] = plugin
-        elif hasattr(plugin, 'plugin_name'):
+        elif hasattr(plugin, "plugin_name"):
             # Use plugin's default name
             self._plugin_registry[plugin.plugin_name] = plugin
         elif plugin_name:

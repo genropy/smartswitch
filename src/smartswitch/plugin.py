@@ -271,9 +271,7 @@ class BasePlugin:
 
         return config_aware_wrapper
 
-    def _wrap_handler(
-        self, func: Callable, switcher: "Switcher"
-    ) -> Callable:
+    def _wrap_handler(self, func: Callable, switcher: "Switcher") -> Callable:
         """
         Wrap handler with plugin-specific logic.
 
@@ -301,6 +299,4 @@ class BasePlugin:
             ...         return func(*args, **kwargs)
             ...     return wrapper
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement _wrap_handler()"
-        )
+        raise NotImplementedError(f"{self.__class__.__name__} must implement _wrap_handler()")

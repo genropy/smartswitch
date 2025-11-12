@@ -18,8 +18,7 @@ try:
     from pydantic import BaseModel, ValidationError, create_model
 except ImportError:
     raise ImportError(
-        "Pydantic plugin requires pydantic. "
-        "Install with: pip install smartswitch[pydantic]"
+        "Pydantic plugin requires pydantic. " "Install with: pip install smartswitch[pydantic]"
     )
 
 from ..plugin import BasePlugin
@@ -136,9 +135,7 @@ class PydanticPlugin(BasePlugin):
 
             # Split arguments into those with hints and those without
             args_to_validate = {k: v for k, v in bound.arguments.items() if k in hints}
-            args_without_hints = {
-                k: v for k, v in bound.arguments.items() if k not in hints
-            }
+            args_without_hints = {k: v for k, v in bound.arguments.items() if k not in hints}
 
             # Validate using Pydantic
             try:

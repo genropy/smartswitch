@@ -123,13 +123,15 @@ class TypeRulePlugin:
             type_checks = self._compile_type_checks(typerule, param_names)
 
             # Register the rule
-            self._type_rules.append({
-                "func": func,
-                "typerule": typerule,
-                "signature": sig,
-                "param_names": param_names,
-                "type_checks": type_checks,
-            })
+            self._type_rules.append(
+                {
+                    "func": func,
+                    "typerule": typerule,
+                    "signature": sig,
+                    "param_names": param_names,
+                    "type_checks": type_checks,
+                }
+            )
 
         return func
 
@@ -141,13 +143,16 @@ class TypeRulePlugin:
         def enhanced_call(arg=None, /, *, typerule=None, valrule=None):
             # If typerule specified, attach metadata to function for later registration
             if typerule is not None:
+
                 def decorator(func):
                     func._smartswitch_typerule = typerule
                     return original_call(func)
+
                 return decorator
 
             # Dispatch mode: switch()(*args, **kwargs)
             if arg is None and typerule is None and valrule is None:
+
                 def invoker(*args, **kwargs):
                     # Try type rules
                     for rule in self._type_rules:
@@ -155,6 +160,7 @@ class TypeRulePlugin:
                             return rule["func"](*args, **kwargs)
                     # Fall back to original dispatch
                     raise ValueError(f"No type rule matched for {args}, {kwargs}")
+
                 return invoker
 
             # Otherwise use original behavior

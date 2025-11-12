@@ -163,9 +163,7 @@ class LoggingPlugin:
 
             # Log before if enabled
             if self.mode in ("log", "both"):
-                self._logger.info(
-                    f"Calling {handler_name} with args={args}, kwargs={kwargs}"
-                )
+                self._logger.info(f"Calling {handler_name} with args={args}, kwargs={kwargs}")
 
             # Execute handler and measure time
             start_time = time.time() if self.track_time else None
