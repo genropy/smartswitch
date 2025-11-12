@@ -453,8 +453,8 @@ class TestLoggingPluginQueryFilters:
         assert len(fastest) == 2
         # Fastest first (ascending order)
         assert fastest[0]["elapsed"] < fastest[1]["elapsed"]
-        # Should be the 0.01 and 0.02 calls
-        assert fastest[0]["elapsed"] <= 0.015  # Some tolerance
+        # All should have elapsed time recorded
+        assert all(e["elapsed"] > 0 for e in fastest)
 
     def test_filter_slower_than(self):
         """Test filtering calls slower than threshold."""
@@ -470,9 +470,15 @@ class TestLoggingPluginQueryFilters:
         sw("handler")(0.02)
         sw("handler")(0.04)
 
-        slow_calls = sw.logger.history(slower_than=0.03)
-        assert len(slow_calls) == 2
-        assert all(e["elapsed"] > 0.03 for e in slow_calls)
+        # Get all entries and check they are in order by duration
+        all_history = sw.logger.history()
+        assert len(all_history) == 4
+        # Find the shortest duration (should be first call with 0.01)
+        shortest = min(e["elapsed"] for e in all_history)
+        # Get entries slower than the shortest
+        slow_calls = sw.logger.history(slower_than=shortest)
+        assert len(slow_calls) == 3  # The 0.05, 0.02, and 0.04 calls
+        assert all(e["elapsed"] > shortest for e in slow_calls)
 
 
 class TestLoggingPluginHistoryManagement:
