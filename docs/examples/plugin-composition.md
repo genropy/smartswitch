@@ -362,6 +362,6 @@ def wrap(self, func, switcher):
 
 ## See Also
 
-- [Plugin Development Guide](../plugin-development.md)
-- [Middleware Pattern](../guide/middleware-pattern.md)
-- [Logging Documentation](../guide/logging.md)
+- [Plugin Development Guide](../plugins/development.md)
+- [Middleware Pattern](../plugins/middleware.md)
+- [Logging Documentation](../plugins/logging.md)

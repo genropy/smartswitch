@@ -6,9 +6,10 @@
 
 ### Current Status
 - **Development Status**: Beta (`Development Status :: 4 - Beta`)
-- **Version**: 0.1.0
+- **Version**: 0.6.0
 - **Has Implementation**: Yes (complete with tests and documentation)
-- **Coverage**: 95% (22 comprehensive tests)
+- **Coverage**: 82% (197 comprehensive tests)
+- **Plugin System**: v0.6.0 with `on_decorate()` hook and metadata sharing
 
 ### Project Overview
 
@@ -142,14 +143,17 @@ The project has complete CI/CD configured:
 
 ## Known Issues and TODOs
 
-### Documentation to Complete
+### Documentation Status
 
-- [ ] `docs/guide/typerules.md` - Deep dive on type rules
-- [ ] `docs/guide/valrules.md` - Deep dive on value rules
-- [ ] `docs/guide/named-handlers.md` - Registry pattern details
-- [ ] `docs/guide/best-practices.md` - Best practices guide
-- [ ] `docs/examples/*.md` - Real-world examples
-- [ ] `docs/api/switcher.md` - API reference with mkdocstrings
+✅ **All core documentation is complete:**
+- User Guide: installation, quickstart, basic usage
+- Core Features: named-handlers, api-discovery, typerules, valrules, best-practices
+- Plugin System: development guide, middleware pattern, logging (v0.4.0+)
+- Examples: 8+ real-world examples
+- API Reference: complete with docstrings
+- Architecture: comprehensive diagrams and explanations
+
+**Note**: Plugin documentation was reorganized in v0.6.0 from scattered locations into dedicated `docs/plugins/` directory.
 
 ### Future Enhancements
 

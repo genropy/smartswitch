@@ -264,7 +264,6 @@ guide/named-handlers
 guide/api-discovery
 guide/valrules
 guide/typerules
-guide/logging
 guide/best-practices
 ```
 
@@ -272,8 +271,10 @@ guide/best-practices
 :maxdepth: 2
 :caption: Plugin System
 
-plugin-development
-guide/middleware-pattern
+plugins/index
+plugins/development
+plugins/middleware
+plugins/logging
 ```
 
 ```{toctree}
