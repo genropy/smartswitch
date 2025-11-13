@@ -251,6 +251,7 @@ Then check out the [Quick Start Guide](user-guide/quickstart.md) to begin using 
 :maxdepth: 2
 :caption: Getting Started
 
+user-guide/overview
 user-guide/installation
 user-guide/quickstart
 user-guide/basic
