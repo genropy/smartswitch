@@ -109,6 +109,54 @@ SmartSwitch might be overkill for:
 - **Ultra-performance-critical code** - Sub-microsecond dispatch overhead exists
 - **Single-dispatch scenarios** - Python's `singledispatch` might be simpler
 
+## Service-Ready Architecture
+
+SmartSwitch is part of the **Genro-Libs toolkit** and integrates seamlessly with **SmartPublisher** for exposing handlers as microservices.
+
+### The Pattern: Organize → Expose
+
+```python
+from smartswitch import Switcher
+from smartpublisher import publish
+
+# 1. ORGANIZE: Define business logic with SmartSwitch
+api = Switcher()
+
+@api
+def get_users():
+    """Retrieve all users."""
+    return [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+
+@api
+def create_user(name: str, email: str):
+    """Create a new user."""
+    # Business logic here
+    return {"id": 3, "name": name, "email": email}
+
+@api
+def delete_user(user_id: int):
+    """Delete a user by ID."""
+    # Business logic here
+    return {"deleted": user_id}
+
+# 2. EXPOSE: Publish as REST/gRPC service with SmartPublisher
+publish(api, protocol="rest", port=8000)
+```
+
+**Benefits**:
+- ✅ **Separation of concerns** - Business logic separate from transport layer
+- ✅ **Protocol-agnostic** - Same handlers work for REST, gRPC, CLI, or local calls
+- ✅ **Testable** - Test business logic without HTTP/network overhead
+- ✅ **Service-ready** - Handlers are immediately publishable as microservices
+
+This architecture lets you:
+1. Write clean handler logic once
+2. Test it locally without servers
+3. Expose it as any protocol (REST/gRPC/WebSocket/CLI)
+4. Switch protocols without changing business logic
+
+Learn more about SmartPublisher at [genropy/smartpublisher](https://github.com/genropy/smartpublisher).
+
 ## Key Features
 
 ✅ **Zero dependencies** - Pure Python 3.10+ standard library
