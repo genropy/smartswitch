@@ -202,6 +202,68 @@ class BasePlugin:
         config = self.get_config(handler_name)
         return config.get("enabled", True)
 
+    def metadata(self, func: Callable, plugin_name: str | None = None) -> dict[str, Any]:
+        """
+        Access plugin metadata for a function.
+
+        The returned dict can be modified directly to store plugin-specific
+        metadata. When accessing own namespace (plugin_name=None), automatically
+        creates an empty dict if it doesn't exist yet.
+
+        Metadata is stored in `func._plugin_meta[plugin_name]` and persists
+        throughout the function's lifetime. Each plugin has its own namespace
+        to avoid conflicts.
+
+        Args:
+            func: The decorated function
+            plugin_name: Plugin namespace to access (default: self.plugin_name).
+                        Use None (default) to access own namespace.
+                        Use explicit name to read other plugins' metadata.
+
+        Returns:
+            Plugin metadata dict. Auto-creates empty dict for own namespace.
+            Returns empty dict (not stored) if reading non-existent namespace.
+
+        Example:
+            Writing to own namespace:
+                >>> class ValidationPlugin(BasePlugin):
+                ...     def on_decorate(self, func, switcher):
+                ...         meta = self.metadata(func)
+                ...         meta["rules"] = self._compile_rules(func)
+                ...         meta["strict_mode"] = True
+
+            Reading own metadata in wrap():
+                >>> def wrap(self, func, switcher):
+                ...     meta = self.metadata(func)
+                ...     rules = meta.get("rules", [])
+                ...     # Use rules in wrapper...
+
+            Reading other plugin's metadata:
+                >>> def on_decorate(self, func, switcher):
+                ...     pydantic_meta = self.metadata(func, "pydantic")
+                ...     if pydantic_meta:
+                ...         model = pydantic_meta.get("model")
+                ...         # Use pydantic model...
+
+        Note:
+            Metadata is for immutable setup-time data (signatures, compiled
+            patterns, models, etc.). For runtime mutable state (counters, etc.),
+            store in the plugin instance with proper thread synchronization.
+        """
+        # Ensure _plugin_meta exists on function
+        if not hasattr(func, "_plugin_meta"):
+            func._plugin_meta = {}
+
+        # Determine which namespace to access
+        name = plugin_name if plugin_name is not None else self.plugin_name
+
+        # Auto-create ONLY for own namespace
+        if plugin_name is None and name not in func._plugin_meta:
+            func._plugin_meta[name] = {}
+
+        # Return metadata dict (or empty dict if not found)
+        return func._plugin_meta.get(name, {})
+
     def on_decorate(self, func: Callable, switcher: "Switcher") -> None:
         """
         Hook called when a function is decorated (optional).

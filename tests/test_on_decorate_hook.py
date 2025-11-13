@@ -325,3 +325,207 @@ class TestPluginMetadata:
         assert "hints" in captured_meta
         assert "name" in captured_meta["hints"]
         assert "age" in captured_meta["hints"]
+
+
+class TestMetadataAPI:
+    """Test BasePlugin.metadata() API for functional metadata access."""
+
+    def test_metadata_auto_creates_own_namespace(self):
+        """Test that metadata() auto-creates dict for own namespace."""
+
+        class TestPlugin(BasePlugin):
+            def on_decorate(self, func, switcher):
+                # Access own namespace - should auto-create
+                meta = self.metadata(func)
+                assert meta is not None
+                assert isinstance(meta, dict)
+                # Verify it's stored
+                assert func._plugin_meta[self.plugin_name] is meta
+
+            def _wrap_handler(self, func, switcher):
+                return func
+
+        sw = Switcher().plug(TestPlugin())
+
+        @sw
+        def test_func():
+            return "result"
+
+    def test_metadata_write_and_read_own_namespace(self):
+        """Test writing and reading from own namespace."""
+
+        class ValidationPlugin(BasePlugin):
+            def on_decorate(self, func, switcher):
+                meta = self.metadata(func)
+                meta["rules"] = ["rule1", "rule2"]
+                meta["strict"] = True
+
+            def _wrap_handler(self, func, switcher):
+                meta = self.metadata(func)
+                assert meta["rules"] == ["rule1", "rule2"]
+                assert meta["strict"] is True
+                return func
+
+        sw = Switcher().plug(ValidationPlugin())
+
+        @sw
+        def test_func():
+            return "result"
+
+    def test_metadata_read_other_plugin_namespace(self):
+        """Test reading metadata from another plugin's namespace."""
+
+        class WriterPlugin(BasePlugin):
+            def on_decorate(self, func, switcher):
+                meta = self.metadata(func)
+                meta["shared_data"] = "important_value"
+
+            def _wrap_handler(self, func, switcher):
+                return func
+
+        class ReaderPlugin(BasePlugin):
+            def __init__(self, **config):
+                super().__init__(**config)
+                self.captured_data = None
+
+            def on_decorate(self, func, switcher):
+                # Read from writer's namespace (plugin_name = "writer")
+                writer_meta = self.metadata(func, "writer")
+                self.captured_data = writer_meta.get("shared_data")
+
+            def _wrap_handler(self, func, switcher):
+                return func
+
+        sw = Switcher().plug(WriterPlugin()).plug(ReaderPlugin())
+
+        @sw
+        def test_func():
+            return "result"
+
+        # Verify reader got writer's data (access via plugin_name = "reader")
+        assert sw.reader.captured_data == "important_value"
+
+    def test_metadata_returns_empty_dict_for_missing_namespace(self):
+        """Test that reading non-existent namespace returns empty dict."""
+
+        class TestPlugin(BasePlugin):
+            def on_decorate(self, func, switcher):
+                # Read non-existent namespace
+                meta = self.metadata(func, "nonexistent")
+                assert meta == {}
+                # Verify it wasn't stored
+                assert "nonexistent" not in func._plugin_meta
+
+            def _wrap_handler(self, func, switcher):
+                return func
+
+        sw = Switcher().plug(TestPlugin())
+
+        @sw
+        def test_func():
+            return "result"
+
+    def test_metadata_pattern_setup_wrap_runtime(self):
+        """Test full pattern: setup in on_decorate, use in wrap, runtime via closure."""
+        import inspect
+
+        class CompilerPlugin(BasePlugin):
+            def on_decorate(self, func, switcher):
+                # SETUP: Expensive compilation at decoration time
+                meta = self.metadata(func)
+                meta["signature"] = inspect.signature(func)
+                meta["compiled_pattern"] = "COMPILED_REGEX"  # Simulated
+
+            def _wrap_handler(self, func, switcher):
+                # WRAP: Read pre-compiled data
+                meta = self.metadata(func)
+                pattern = meta["compiled_pattern"]
+                sig = meta["signature"]
+
+                @wraps(func)
+                def wrapper(*args, **kwargs):
+                    # RUNTIME: Use via closure (immutable)
+                    assert pattern == "COMPILED_REGEX"
+                    assert sig is not None
+                    return func(*args, **kwargs)
+
+                return wrapper
+
+        sw = Switcher().plug(CompilerPlugin())
+
+        @sw
+        def test_func(x: int):
+            return x * 2
+
+        # Execute to verify runtime access
+        result = sw("test_func")(5)
+        assert result == 10
+
+    def test_metadata_cross_plugin_dependency(self):
+        """Test plugin depending on another plugin's metadata."""
+
+        class PydanticSimPlugin(BasePlugin):
+            def on_decorate(self, func, switcher):
+                from typing import get_type_hints
+
+                meta = self.metadata(func)
+                meta["hints"] = get_type_hints(func) if func.__annotations__ else {}
+                meta["has_types"] = bool(meta["hints"])
+
+            def _wrap_handler(self, func, switcher):
+                return func
+
+        class FastAPISimPlugin(BasePlugin):
+            def __init__(self, **config):
+                super().__init__(**config)
+                self.endpoints = []
+
+            def on_decorate(self, func, switcher):
+                # Depend on pydantic data (plugin_name = "pydanticsim")
+                pydantic_meta = self.metadata(func, "pydanticsim")
+
+                if pydantic_meta.get("has_types"):
+                    self.endpoints.append(
+                        {"name": func.__name__, "hints": pydantic_meta["hints"]}
+                    )
+
+            def _wrap_handler(self, func, switcher):
+                return func
+
+        sw = Switcher().plug(PydanticSimPlugin()).plug(FastAPISimPlugin())
+
+        @sw
+        def create_user(name: str, age: int):
+            return {"name": name, "age": age}
+
+        # Verify FastAPI saw pydantic metadata (plugin_name = "fastapisim")
+        assert len(sw.fastapisim.endpoints) == 1
+        assert sw.fastapisim.endpoints[0]["name"] == "create_user"
+        assert "name" in sw.fastapisim.endpoints[0]["hints"]
+        assert "age" in sw.fastapisim.endpoints[0]["hints"]
+
+    def test_metadata_modification_persists(self):
+        """Test that modifications to returned dict persist."""
+
+        class ModifyPlugin(BasePlugin):
+            def on_decorate(self, func, switcher):
+                meta = self.metadata(func)
+                meta["counter"] = 0
+
+            def _wrap_handler(self, func, switcher):
+                meta = self.metadata(func)
+                # Modify in wrap
+                meta["counter"] += 1
+                meta["processed"] = True
+                return func
+
+        sw = Switcher().plug(ModifyPlugin())
+
+        @sw
+        def test_func():
+            return "result"
+
+        # Verify modifications persisted (plugin_name = "modify")
+        meta = test_func._plugin_meta["modify"]
+        assert meta["counter"] == 1
+        assert meta["processed"] is True
