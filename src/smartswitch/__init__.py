@@ -10,7 +10,7 @@ High-level entrypoints:
 """
 
 from .core import SmartSwitch, SmartPlugin, SmartSwitchOwner, MethodEntry
-from .plugins import SmartAsyncPlugin, DbOpPlugin, LoggingPlugin
+from .plugins import SmartAsyncPlugin, DbOpPlugin, LoggingPlugin, PydanticPlugin
 
 # Backward compatibility aliases (deprecated)
 Switcher = SmartSwitch
@@ -24,6 +24,7 @@ __all__ = [
     "SmartAsyncPlugin",
     "DbOpPlugin",
     "LoggingPlugin",
+    "PydanticPlugin",
     # Legacy names
     "Switcher",
     "BasePlugin",

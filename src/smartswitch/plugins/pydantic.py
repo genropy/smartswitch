@@ -11,8 +11,8 @@ MVP Support:
 - Existing Pydantic BaseModel instances
 """
 
-from functools import wraps
-from typing import Any, Callable, get_type_hints
+import inspect
+from typing import TYPE_CHECKING, Any, Callable, Optional, get_type_hints
 
 try:
     from pydantic import BaseModel, ValidationError, create_model
@@ -21,17 +21,20 @@ except ImportError:
         "Pydantic plugin requires pydantic. " "Install with: pip install smartswitch[pydantic]"
     )
 
-from ..plugin import BasePlugin
+if TYPE_CHECKING:
+    from ..core import SmartSwitch, MethodEntry
+
+from ..core import SmartPlugin
 
 
-class PydanticPlugin(BasePlugin):
+class PydanticPlugin(SmartPlugin):
     """
     Plugin that adds Pydantic validation to handlers based on type hints.
 
     Usage:
-        sw = Switcher().plug("pydantic")
+        sw = SmartSwitch().plug("pydantic")
 
-        @sw.typerule(x=int, y=int)
+        @sw
         def add(x: int, y: str) -> int:  # Will validate types at runtime
             return x + int(y)
 
@@ -39,32 +42,40 @@ class PydanticPlugin(BasePlugin):
     arguments before calling the function. Raises ValidationError on failure.
     """
 
-    def __init__(self, **config):
+    def __init__(self, name: Optional[str] = None, **config: Any):
         """
         Initialize the Pydantic validation plugin.
 
         Args:
+            name: Plugin name (default: 'pydantic')
             **config: Configuration options for the plugin.
                      Common: enabled=True/False to enable/disable globally
         """
-        super().__init__(**config)
+        super().__init__(name=name or "pydantic", **config)
 
-    def on_decorate(self, func: Callable, switcher: Any) -> None:
+    def on_decore(
+        self,
+        switch: "SmartSwitch",
+        func: Callable,
+        entry: "MethodEntry",
+    ) -> None:
         """
         Prepare validation model during decoration.
 
         Extracts type hints and creates Pydantic model, storing it in
-        func._plugin_meta['pydantic'] for use by this plugin and others.
+        entry.metadata['pydantic'] for use at runtime.
 
         Args:
+            switch: The SmartSwitch instance
             func: The handler function being decorated
-            switcher: The Switcher instance
+            entry: The method entry with metadata
         """
         # Get type hints (resolved with string annotations)
         try:
             hints = get_type_hints(func)
         except Exception:
-            # If type hints can't be resolved, skip
+            # If type hints can't be resolved, skip validation
+            entry.metadata["pydantic"] = {"enabled": False}
             return
 
         # Remove return type hint
@@ -72,11 +83,10 @@ class PydanticPlugin(BasePlugin):
 
         # If no type hints to validate, skip
         if not hints:
+            entry.metadata["pydantic"] = {"enabled": False}
             return
 
-        # Create a Pydantic model dynamically from type hints
-        import inspect
-
+        # Get function signature
         sig = inspect.signature(func)
         fields = {}
 
@@ -95,43 +105,53 @@ class PydanticPlugin(BasePlugin):
         # Create validation model
         validation_model = create_model(f"{func.__name__}_Model", **fields)
 
-        # Store model and metadata for use by this and other plugins
-        func._plugin_meta["pydantic"] = {
+        # Store model and metadata in entry for runtime use
+        entry.metadata["pydantic"] = {
+            "enabled": True,
             "model": validation_model,
             "hints": hints,
             "signature": sig,
         }
 
-    def _wrap_handler(self, func: Callable, switcher: Any) -> Callable:
+    def wrap_handler(
+        self,
+        switch: "SmartSwitch",
+        entry: "MethodEntry",
+        call_next: Callable,
+    ) -> Callable:
         """
-        Wrap a function with Pydantic validation.
+        Wrap a handler function with Pydantic validation.
 
-        Uses pre-created validation model from func._plugin_meta['pydantic']
+        Uses pre-created validation model from entry.metadata['pydantic']
         if available, otherwise skips validation.
 
         Args:
-            func: The function to wrap
-            switcher: The Switcher instance (unused in MVP)
+            switch: The SmartSwitch instance
+            entry: The method entry with metadata
+            call_next: The next layer in the wrapper chain
 
         Returns:
             Wrapped function that validates arguments before execution
         """
-        # Check if validation model was created in on_decorate
-        pydantic_meta = getattr(func, "_plugin_meta", {}).get("pydantic", {})
-        if not pydantic_meta:
-            # No validation model - return original function
-            return func
+        # Check if validation model was created in on_decore
+        pydantic_meta = entry.metadata.get("pydantic", {})
+        if not pydantic_meta.get("enabled", False):
+            # No validation model - pass through
+            return call_next
 
         validation_model = pydantic_meta["model"]
         hints = pydantic_meta["hints"]
         sig = pydantic_meta["signature"]
 
-        @wraps(func)
         def wrapper(*args, **kwargs):
             """Validate arguments before calling function."""
             # Build dict of all arguments
-            bound = sig.bind(*args, **kwargs)
-            bound.apply_defaults()
+            try:
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+            except TypeError as e:
+                # Signature binding failed - let it propagate
+                raise
 
             # Split arguments into those with hints and those without
             args_to_validate = {k: v for k, v in bound.arguments.items() if k in hints}
@@ -154,13 +174,18 @@ class PydanticPlugin(BasePlugin):
                         # Use validated value
                         final_args[key] = value
 
-                # Call original function with all arguments
-                return func(**final_args)
+                # Call next layer with validated arguments
+                return call_next(**final_args)
             except ValidationError as e:
                 # Re-raise with more context
                 raise ValidationError.from_exception_data(
-                    title=f"Validation error in {func.__name__}",
+                    title=f"Validation error in {entry.name}",
                     line_errors=e.errors(),
                 ) from e
 
         return wrapper
+
+
+# Register plugin globally
+from ..core import SmartSwitch
+SmartSwitch.register_plugin("pydantic", PydanticPlugin)
