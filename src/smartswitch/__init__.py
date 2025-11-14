@@ -8,8 +8,8 @@ High-level entrypoints:
 - DbOpPlugin
 """
 
-from .core import Switcher, BasePlugin, MethodEntry
-from .plugins import SmartAsyncPlugin, DbOpPlugin, LoggingPlugin
+from .core import BasePlugin, MethodEntry, Switcher
+from .plugins import DbOpPlugin, LoggingPlugin, SmartAsyncPlugin
 
 # PydanticPlugin is conditionally imported in plugins/__init__.py
 # Only available if pydantic is installed

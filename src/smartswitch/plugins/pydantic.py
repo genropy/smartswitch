@@ -22,7 +22,7 @@ except ImportError:
     )
 
 if TYPE_CHECKING:
-    from ..core import Switcher, MethodEntry
+    from ..core import MethodEntry, Switcher
 
 from ..core import BasePlugin
 
@@ -149,7 +149,7 @@ class PydanticPlugin(BasePlugin):
             try:
                 bound = sig.bind(*args, **kwargs)
                 bound.apply_defaults()
-            except TypeError as e:
+            except TypeError:
                 # Signature binding failed - let it propagate
                 raise
 
@@ -187,5 +187,6 @@ class PydanticPlugin(BasePlugin):
 
 
 # Register plugin globally
-from ..core import Switcher
+from ..core import Switcher  # noqa: E402
+
 Switcher.register_plugin("pydantic", PydanticPlugin)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from typing import Optional
 
-from ..core import MethodEntry, BasePlugin, Switcher
+from ..core import BasePlugin, MethodEntry, Switcher
 
 
 class SmartAsyncPlugin(BasePlugin):
@@ -76,11 +76,11 @@ class DbOpPlugin(BasePlugin):
 Switcher.register_plugin("dbop", DbOpPlugin)
 
 # Import logging plugin (always available)
-from .logging import LoggingPlugin
+from .logging import LoggingPlugin  # noqa: E402
 
 # Import pydantic plugin only if pydantic is installed
 try:
-    from .pydantic import PydanticPlugin
+    from .pydantic import PydanticPlugin  # noqa: E402
     __all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin", "PydanticPlugin"]
 except ImportError:
     # Pydantic not installed - plugin not available

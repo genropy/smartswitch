@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Type, Tuple
-
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type
 
 # ============================================================
 # THREAD-LOCAL CONTEXT
@@ -297,7 +296,9 @@ class Switcher:
         except KeyError:
             raise KeyError(f"No child switch named {name!r} in {self!r}")
 
-    def _attach_child_switcher(self, child: "Switcher", explicit_name: Optional[str] = None) -> None:
+    def _attach_child_switcher(
+        self, child: "Switcher", explicit_name: Optional[str] = None
+    ) -> None:
         """Attach an actual Switcher instance as a child."""
         if child is self:
             raise ValueError("Cannot attach a switch to itself")

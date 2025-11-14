@@ -10,7 +10,7 @@ import time
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
-    from ..core import Switcher, MethodEntry
+    from ..core import MethodEntry, Switcher
 
 from ..core import BasePlugin
 
@@ -379,5 +379,6 @@ class LoggingPlugin(BasePlugin):
 
 
 # Register plugin globally
-from ..core import Switcher
+from ..core import Switcher  # noqa: E402
+
 Switcher.register_plugin("logging", LoggingPlugin)
