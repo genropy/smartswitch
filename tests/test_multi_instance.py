@@ -9,7 +9,7 @@ Verifies that:
 """
 
 import unittest
-from smartswitch import Switcher, BasePlugin, SwitcherOwner
+from smartswitch import Switcher, BasePlugin
 
 
 class CounterPlugin(BasePlugin):
@@ -30,7 +30,7 @@ class TestMultipleInstances(unittest.TestCase):
     def test_separate_runtime_data_per_instance(self):
         """Test that each instance has separate runtime data."""
 
-        class Shop(SwitcherOwner):
+        class Shop:
             ops = Switcher("ops")
             ops.plug(CounterPlugin)
 
@@ -67,7 +67,7 @@ class TestMultipleInstances(unittest.TestCase):
     def test_plugin_enable_disable_per_instance(self):
         """Test that plugin enable/disable is per-instance."""
 
-        class Service(SwitcherOwner):
+        class Service:
             api = Switcher("api")
             api.plug(CounterPlugin)
 
@@ -99,7 +99,7 @@ class TestMultipleInstances(unittest.TestCase):
     def test_logging_history_per_instance(self):
         """Test that logging history is separate per instance."""
 
-        class DataStore(SwitcherOwner):
+        class DataStore:
             ops = Switcher("ops")
             ops.plug("logging", mode="silent")
 
@@ -137,7 +137,7 @@ class TestMultipleInstances(unittest.TestCase):
     def test_custom_runtime_data_per_instance(self):
         """Test that custom runtime data is isolated per instance."""
 
-        class Worker(SwitcherOwner):
+        class Worker:
             tasks = Switcher("tasks")
             tasks.plug(CounterPlugin)
 
@@ -190,7 +190,7 @@ class TestMultipleInstances(unittest.TestCase):
     def test_multiple_plugins_per_instance_control(self):
         """Test controlling multiple plugins independently per instance."""
 
-        class API(SwitcherOwner):
+        class API:
             handlers = Switcher("handlers")
             handlers.plug(CounterPlugin, name="Counter1")
             handlers.plug(CounterPlugin, name="Counter2")

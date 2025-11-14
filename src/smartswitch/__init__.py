@@ -3,19 +3,17 @@
 High-level entrypoints:
 - Switcher
 - BasePlugin
-- SwitcherOwner
 - MethodEntry
 - SmartAsyncPlugin
 - DbOpPlugin
 """
 
-from .core import Switcher, BasePlugin, SwitcherOwner, MethodEntry
+from .core import Switcher, BasePlugin, MethodEntry
 from .plugins import SmartAsyncPlugin, DbOpPlugin, LoggingPlugin, PydanticPlugin
 
 __all__ = [
     "Switcher",
     "BasePlugin",
-    "SwitcherOwner",
     "MethodEntry",
     "SmartAsyncPlugin",
     "DbOpPlugin",

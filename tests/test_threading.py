@@ -11,7 +11,7 @@ Verifies that:
 import unittest
 import threading
 import time
-from smartswitch import Switcher, BasePlugin, SwitcherOwner
+from smartswitch import Switcher, BasePlugin
 
 
 class ThreadAwarePlugin(BasePlugin):
@@ -41,7 +41,7 @@ class TestThreadSafety(unittest.TestCase):
     def test_concurrent_calls_same_instance(self):
         """Test that multiple threads can call same instance safely."""
 
-        class Service(SwitcherOwner):
+        class Service:
             ops = Switcher("ops")
             ops.plug(ThreadAwarePlugin, name="ThreadPlugin")
 
@@ -92,7 +92,7 @@ class TestThreadSafety(unittest.TestCase):
     def test_thread_local_runtime_data(self):
         """Test that runtime data access is thread-safe."""
 
-        class Counter(SwitcherOwner):
+        class Counter:
             ops = Switcher("ops")
             ops.plug(ThreadAwarePlugin, name="ThreadPlugin")
 
@@ -146,7 +146,7 @@ class TestThreadSafety(unittest.TestCase):
     def test_thread_local_plugin_enable_disable(self):
         """Test that plugin enable/disable is thread-local via contextvars."""
 
-        class API(SwitcherOwner):
+        class API:
             handlers = Switcher("handlers")
             handlers.plug(ThreadAwarePlugin, name="ThreadPlugin")
 
@@ -224,7 +224,7 @@ class TestThreadSafety(unittest.TestCase):
     def test_concurrent_logging_plugin(self):
         """Test that LoggingPlugin works correctly with concurrent threads."""
 
-        class Service(SwitcherOwner):
+        class Service:
             ops = Switcher("ops")
             ops.plug("logging", mode="silent", time=True)
 
@@ -285,7 +285,7 @@ class TestThreadSafety(unittest.TestCase):
                     return call_next(*args, **kwargs)
                 return wrapper
 
-        class SharedCounter(SwitcherOwner):
+        class SharedCounter:
             ops = Switcher("ops")
             ops.plug(IncrementPlugin, name="TestPlugin")
 

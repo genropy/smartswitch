@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Type, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Type, Tuple
 
 
 # ============================================================
@@ -206,7 +206,7 @@ class Switcher:
 
         switch = Switcher("main", prefix="do_")
 
-        class My(SwitcherOwner):
+        class My:
             main = switch
 
             @main
@@ -264,26 +264,46 @@ class Switcher:
         self._children: Dict[str, "Switcher"] = {}
         self._methods: Dict[str, MethodEntry] = {}
 
-        self._owner_class: Optional[Type] = None
-        self._attr_name: Optional[str] = None
-
         if parent is not None:
             parent.add_child(self)
 
     # --------------------------------------------------------
-    # Owner binding (for class-level usage)
-    # --------------------------------------------------------
-    def bind_owner(self, cls: Type, attr_name: str) -> None:
-        self._owner_class = cls
-        self._attr_name = attr_name
-
-    # --------------------------------------------------------
     # Children
     # --------------------------------------------------------
-    def add_child(self, child: "Switcher", name: Optional[str] = None) -> None:
+    def add_child(self, child: Any, name: Optional[str] = None) -> None:
+        """
+        Attach a child switch or scan an arbitrary object for switchers.
+
+        Args:
+            child: Either a Switcher instance or any object exposing Switchers.
+            name: Optional explicit child name (only used when child is a Switcher).
+        """
+        if isinstance(child, Switcher):
+            self._attach_child_switcher(child, explicit_name=name)
+            return
+
+        discovered = list(self._iter_unbound_switchers(child))
+        if not discovered:
+            raise TypeError(
+                f"Object {child!r} does not expose any Switcher instances without a parent"
+            )
+        for attr_name, switch in discovered:
+            derived_name = switch.name or attr_name
+            self._attach_child_switcher(switch, explicit_name=derived_name)
+
+    def get_child(self, name: str) -> "Switcher":
+        try:
+            return self._children[name]
+        except KeyError:
+            raise KeyError(f"No child switch named {name!r} in {self!r}")
+
+    def _attach_child_switcher(self, child: "Switcher", explicit_name: Optional[str] = None) -> None:
+        """Attach an actual Switcher instance as a child."""
+        if child is self:
+            raise ValueError("Cannot attach a switch to itself")
         if child.parent is not None and child.parent is not self:
             raise ValueError("Child already has a different parent")
-        key = name or (child.name or "child")
+        key = explicit_name or (child.name or "child")
         if key in self._children and self._children[key] is not child:
             raise ValueError(f"Child name collision: {key}")
         self._children[key] = child
@@ -294,11 +314,34 @@ class Switcher:
             child._local_plugins.clear()
             child._local_plugin_specs.clear()
 
-    def get_child(self, name: str) -> "Switcher":
-        try:
-            return self._children[name]
-        except KeyError:
-            raise KeyError(f"No child switch named {name!r} in {self!r}")
+    @staticmethod
+    def _iter_unbound_switchers(source: Any) -> Iterator[Tuple[str, "Switcher"]]:
+        """
+        Yield (attribute_name, switcher) pairs for Switchers without a parent.
+        """
+        if source is None:
+            return iter(())
+
+        seen: Set[int] = set()
+
+        def visit(mapping: Dict[str, Any]) -> Iterator[Tuple[str, "Switcher"]]:
+            for attr_name, value in mapping.items():
+                if attr_name.startswith("__") and attr_name.endswith("__"):
+                    continue
+                if isinstance(value, Switcher) and value.parent is None:
+                    ident = id(value)
+                    if ident in seen:
+                        continue
+                    seen.add(ident)
+                    yield attr_name, value
+
+        def generator() -> Iterator[Tuple[str, "Switcher"]]:
+            instance_dict = getattr(source, "__dict__", None)
+            if instance_dict:
+                yield from visit(instance_dict)
+            yield from visit(vars(type(source)))
+
+        return generator()
 
     # --------------------------------------------------------
     # Plugin management
@@ -646,8 +689,6 @@ class Switcher:
         return {
             "name": self.name,
             "prefix": self.prefix,
-            "owner_class": self._owner_class.__name__ if self._owner_class else None,
-            "attr_name": self._attr_name,
             "plugins": [p.name for p in self.iter_plugins()],
             "methods": {
                 name: {
@@ -658,21 +699,3 @@ class Switcher:
             },
             "children": {name: child.describe() for name, child in self._children.items()},
         }
-
-
-# ============================================================
-# OWNER BASE CLASS
-# ============================================================
-
-class SwitcherOwner:
-    """
-    Base class for any class that defines Switcher attributes.
-
-    It binds switches to the owning class automatically.
-    """
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        for name, value in cls.__dict__.items():
-            if isinstance(value, Switcher):
-                value.bind_owner(cls, name)

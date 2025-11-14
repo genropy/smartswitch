@@ -3,7 +3,7 @@ import unittest
 
 from smartasync import smartasync
 
-from smartswitch.core import Switcher, BasePlugin, SwitcherOwner
+from smartswitch.core import Switcher, BasePlugin
 from smartswitch.plugins import DbOpPlugin, SmartAsyncPlugin
 
 
@@ -43,7 +43,7 @@ class GatePlugin(BasePlugin):
         return wrapper
 
 
-class Base(SwitcherOwner):
+class Base:
     main = Switcher("main", prefix="do_")
     main.plug(CountPlugin)
     main.plug(MetaPlugin)
@@ -161,7 +161,7 @@ class TestSwitcher(unittest.TestCase):
         )
 
     def test_use_parent_plugins_stack(self):
-        class Parent(SwitcherOwner):
+        class Parent:
             root = Switcher("root")
             root.plug(TracePlugin, name="TraceParent", label="parent")
 
@@ -177,7 +177,7 @@ class TestSwitcher(unittest.TestCase):
         self.assertEqual(entry.metadata["trace"], ["parent"])
 
     def test_plug_breaks_use_parent_mode(self):
-        class Parent(SwitcherOwner):
+        class Parent:
             root = Switcher("root")
             root.plug(TracePlugin, name="TraceParent", label="parent")
 
@@ -194,7 +194,7 @@ class TestSwitcher(unittest.TestCase):
         self.assertEqual(entry.metadata["trace"], ["child"])
 
     def test_copy_plugins_from_parent(self):
-        class Parent(SwitcherOwner):
+        class Parent:
             root = Switcher("root")
             root.plug(TracePlugin, name="TraceParent", label="parent")
 
@@ -214,7 +214,7 @@ class TestSwitcher(unittest.TestCase):
     def test_register_plugin_by_name(self):
         Switcher.register_plugin("flag", FlagPlugin)
         try:
-            class Owner(SwitcherOwner):
+            class Owner:
                 switch = Switcher("switch")
                 switch.plug("flag")
 
@@ -234,7 +234,7 @@ class TestSwitcher(unittest.TestCase):
             switch.plug("missing")
 
     def test_plugin_config_per_method(self):
-        class Owner(SwitcherOwner):
+        class Owner:
             gate = Switcher("gate")
             gate.plug(GatePlugin)
 
@@ -253,7 +253,7 @@ class TestSwitcher(unittest.TestCase):
             Owner.gate("do_block")(obj, 2)
 
     def test_plugin_config_enabled_flag(self):
-        class Owner(SwitcherOwner):
+        class Owner:
             gate = Switcher("gate")
             gate.plug(GatePlugin)
 
@@ -269,7 +269,7 @@ class TestSwitcher(unittest.TestCase):
         self.assertEqual(Owner.gate("do_stable")(owner, 2), "stable:2")
 
     def test_smartasync_plugin_wraps_async_handler(self):
-        class Owner(SwitcherOwner):
+        class Owner:
             api = Switcher("api")
             api.plug(SmartAsyncPlugin)
 
@@ -288,7 +288,7 @@ class TestSwitcher(unittest.TestCase):
         self.assertEqual(asyncio.run(runner()), "async:async")
 
     def test_smartasync_plugin_respects_pre_wrapped_functions(self):
-        class Owner(SwitcherOwner):
+        class Owner:
             api = Switcher("api")
             api.plug(SmartAsyncPlugin)
 
@@ -305,7 +305,7 @@ class TestSwitcher(unittest.TestCase):
         self.assertFalse(entry.metadata["smartasync"]["wrapped"])
 
     def test_dbop_plugin_injects_cursor_and_commits(self):
-        class Table(SwitcherOwner):
+        class Table:
             dbop = Switcher("dbop")
             dbop.plug(DbOpPlugin)
 
@@ -323,7 +323,7 @@ class TestSwitcher(unittest.TestCase):
         self.assertEqual(table.db.commits, 1)
 
     def test_dbop_plugin_rolls_back_on_error(self):
-        class Table(SwitcherOwner):
+        class Table:
             dbop = Switcher("dbop")
             dbop.plug(DbOpPlugin)
 
@@ -342,6 +342,76 @@ class TestSwitcher(unittest.TestCase):
             handler(table, 10)
         self.assertEqual(table.db.rollbacks, 1)
 
+    def test_add_child_discovers_switchers_on_object(self):
+        root = Switcher("root")
+
+        class Module:
+            api = Switcher("module")
+
+        module = Module()
+        root.add_child(module)
+        self.assertIs(Module.api.parent, root)
+        self.assertIs(root.get_child("module"), Module.api)
+
+    def test_add_child_handles_instance_defined_switcher(self):
+        root = Switcher("root")
+
+        class DynamicModule:
+            def __init__(self):
+                self.inner = Switcher("inner")
+
+        module = DynamicModule()
+        root.add_child(module)
+        self.assertIs(module.inner.parent, root)
+        self.assertIs(root.get_child("inner"), module.inner)
+
+    def test_add_child_raises_for_objects_without_switchers(self):
+        root = Switcher("root")
+        with self.assertRaises(TypeError):
+            root.add_child(object())
+
+    def test_add_child_raises_when_switch_has_other_parent(self):
+        root_a = Switcher("root_a")
+        root_b = Switcher("root_b")
+        child = Switcher("child", parent=root_a)
+        with self.assertRaises(ValueError):
+            root_b.add_child(child)
+
+    def test_add_child_discovers_multiple_switchers(self):
+        root = Switcher("root")
+
+        class Module:
+            alpha = Switcher("alpha")
+            beta = Switcher("beta")
+
+        module = Module()
+        root.add_child(module)
+        self.assertIs(root.get_child("alpha"), Module.alpha)
+        self.assertIs(root.get_child("beta"), Module.beta)
+
+    def test_add_child_uses_attribute_name_for_anonymous_switch(self):
+        root = Switcher("root")
+
+        class Module:
+            anonymous = Switcher()
+
+        module = Module()
+        module.anonymous.name = None
+        root.add_child(module)
+        self.assertIs(root.get_child("anonymous"), module.anonymous)
+
+    def test_add_child_deduplicates_shared_switch_references(self):
+        root = Switcher("root")
+
+        class Module:
+            shared = Switcher("shared")
+
+            def __init__(self):
+                self.alias = self.shared
+
+        module = Module()
+        root.add_child(module)
+        self.assertIs(root.get_child("shared"), module.shared)
 
 if __name__ == "__main__":
     unittest.main()

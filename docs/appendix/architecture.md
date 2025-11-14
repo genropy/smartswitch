@@ -20,7 +20,6 @@ graph TB
         PL[_local_plugins List]
         IP[_inherited_plugins]
         RD[_runtime_data WeakKeyDict]
-        SO[SwitcherOwner]
     end
 
     subgraph PluginSystem[Plugin System v0.6.0]
@@ -44,7 +43,6 @@ graph TB
     SW --> PL
     SW --> IP
     SW --> RD
-    SW --> SO
     SW --> MethodEntry
     PL --> BP
     PL --> LP
@@ -60,7 +58,6 @@ SmartSwitch V2 consists of core components and plugin system:
 
 - **Switcher**: The core engine handling registration, dispatch, and plugin management
 - **MethodEntry**: Dataclass containing method metadata and plugin information
-- **SwitcherOwner**: Base class for automatic Switcher binding via `__init_subclass__`
 - **Plugin System** (v0.6.0): Extensible middleware architecture with `on_decorate` and `wrap_handler` hooks
 
 ---
