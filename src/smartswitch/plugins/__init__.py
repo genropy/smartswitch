@@ -75,4 +75,7 @@ class DbOpPlugin(SmartPlugin):
 
 SmartSwitch.register_plugin("dbop", DbOpPlugin)
 
-__all__ = ["SmartAsyncPlugin", "DbOpPlugin"]
+# Import logging plugin
+from .logging import LoggingPlugin
+
+__all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin"]
