@@ -1,17 +1,347 @@
-from smartswitch import Switcher
+import asyncio
+import unittest
 
-def test_basic_dispatch():
-    book = Switcher("test")
+from smartasync import smartasync
 
-    @book
-    def default(a, b): return f"default {a}, {b}"
+from smartswitch.core import SmartSwitch, SmartPlugin, SmartSwitchOwner
+from smartswitch.plugins import DbOpPlugin, SmartAsyncPlugin
 
-    @book(typerule={'a': int | float, 'b': str})
-    def mixed(a, b): return f"{a}:{b}"
 
-    @book(valrule=lambda a, b: a > 100)
-    def big(a, b): return f"BIG {a}"
+class CountPlugin(SmartPlugin):
+    def wrap_handler(self, switch, entry, call_next):
+        def wrapper(*args, **kwargs):
+            instance = args[0] if args else None
+            count = switch.get_runtime_data(instance, entry.name, self.name, "count", 0)
+            switch.set_runtime_data(instance, entry.name, self.name, "count", count + 1)
+            return call_next(*args, **kwargs)
+        return wrapper
 
-    assert book('default')('hi', 'x') == "default hi, x"
-    assert book()(3, 'a') == "3:a"
-    assert book()(200, 0) == "BIG 200"
+
+class MetaPlugin(SmartPlugin):
+    def on_decore(self, switch, func, entry):
+        entry.metadata["decorated"] = True
+
+
+class TracePlugin(SmartPlugin):
+    def on_decore(self, switch, func, entry):
+        label = self.config.get("label", self.name)
+        entry.metadata.setdefault("trace", []).append(label)
+
+
+class FlagPlugin(SmartPlugin):
+    def on_decore(self, switch, func, entry):
+        entry.metadata["flagged"] = True
+
+
+class GatePlugin(SmartPlugin):
+    def wrap_handler(self, switch, entry, call_next):
+        def wrapper(*args, **kwargs):
+            config = self.get_config(entry.name)
+            if config.get("blocked"):
+                raise RuntimeError("blocked by GatePlugin")
+            return call_next(*args, **kwargs)
+        return wrapper
+
+
+class Base(SmartSwitchOwner):
+    main = SmartSwitch("main", prefix="do_")
+    main.plug(CountPlugin)
+    main.plug(MetaPlugin)
+
+
+class DummyCursor:
+    def __init__(self, db):
+        self.db = db
+        self.executed = []
+
+    def execute(self, query, params=None):
+        self.executed.append((query, params))
+        if self.db.fail_next:
+            self.db.fail_next = False
+            raise RuntimeError("boom")
+        return True
+
+
+class DummyDB:
+    def __init__(self):
+        self.commits = 0
+        self.rollbacks = 0
+        self.fail_next = False
+
+    def cursor(self):
+        return DummyCursor(self)
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+class Child(Base):
+    child = SmartSwitch("child", parent=Base.main)
+
+    @Base.main
+    def do_run(self, x):
+        return f"run:{x}"
+
+    @Base.main("special")
+    def do_special(self, x):
+        return f"special:{x}"
+
+    @child
+    def do_child(self, x):
+        return f"child:{x}"
+
+
+class TestSmartSwitch(unittest.TestCase):
+    def test_prefix_and_alias_registration(self):
+        obj = Child()
+        desc = Child.main.describe()
+        self.assertIn("run", desc["methods"])
+        self.assertIn("special", desc["methods"])
+        self.assertNotIn("do_run", desc["methods"])
+        self.assertTrue(desc["methods"]["run"]["metadata_keys"])
+        # collision check
+        with self.assertRaises(ValueError):
+            @Child.main
+            def do_run(self, x):
+                return x  # name "run" already used
+
+    def test_named_dispatch(self):
+        obj = Child()
+        self.assertEqual(Child.main("run")(obj, 5), "run:5")
+        self.assertEqual(Child.main("special")(obj, 7), "special:7")
+
+    def test_dotted_path_dispatch(self):
+        obj = Child()
+        # child switch is attached under main; we name it "child"
+        Child.main.add_child(Child.child, name="child")
+        self.assertEqual(Child.main("child.child")(obj, 3), "child:3")
+
+    def test_plugin_runtime_count(self):
+        obj = Child()
+        Child.main("run")(obj, 1)
+        Child.main("run")(obj, 2)
+        count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
+        self.assertEqual(count, 2)
+
+    def test_plugin_enable_disable(self):
+        obj = Child()
+        # disable CountPlugin for run on this instance
+        Child.main.set_plugin_enabled(obj, "run", "CountPlugin", False)
+        Child.main("run")(obj, 1)
+        count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
+        self.assertEqual(count, 0)
+        # re-enable for other tests
+        Child.main.set_plugin_enabled(obj, "run", "CountPlugin", True)
+
+    def test_instance_plugin_disable_and_runtime_data(self):
+        obj = Child()
+        Child.main.set_runtime_data(obj, "run", "CountPlugin", "extra", "before")
+        Child.main.set_plugin_enabled(obj, "run", "CountPlugin", False)
+        try:
+            Child.main("run")(obj, 1)
+            count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
+            self.assertEqual(count, 0)
+            self.assertEqual(
+                Child.main.get_runtime_data(obj, "run", "CountPlugin", "extra"), "before"
+            )
+        finally:
+            Child.main.set_plugin_enabled(obj, "run", "CountPlugin", True)
+
+    def test_runtime_data_defaults(self):
+        obj = Child()
+        Child.main.set_runtime_data(obj, "run", "CountPlugin", "custom", 42)
+        self.assertEqual(
+            Child.main.get_runtime_data(obj, "run", "CountPlugin", "custom"), 42
+        )
+        self.assertEqual(
+            Child.main.get_runtime_data(obj, "run", "CountPlugin", "missing", default=-1), -1
+        )
+
+    def test_use_parent_plugins_stack(self):
+        class Parent(SmartSwitchOwner):
+            root = SmartSwitch("root")
+            root.plug(TracePlugin, name="TraceParent", label="parent")
+
+        class ChildOwner(Parent):
+            branch = SmartSwitch("branch", parent=Parent.root, inherit_plugins=True)
+
+            @branch
+            def do_branch(self):
+                return "branch"
+
+        entry = ChildOwner.branch._methods["do_branch"]
+        self.assertEqual(entry.plugins, ["TraceParent"])
+        self.assertEqual(entry.metadata["trace"], ["parent"])
+
+    def test_plug_breaks_use_parent_mode(self):
+        class Parent(SmartSwitchOwner):
+            root = SmartSwitch("root")
+            root.plug(TracePlugin, name="TraceParent", label="parent")
+
+        class ChildOwner(Parent):
+            branch = SmartSwitch("branch", parent=Parent.root, inherit_plugins=True)
+            branch.plug(TracePlugin, name="TraceChild", label="child")
+
+            @branch
+            def do_branch(self):
+                return "branch"
+
+        entry = ChildOwner.branch._methods["do_branch"]
+        self.assertEqual(entry.plugins, ["TraceChild"])
+        self.assertEqual(entry.metadata["trace"], ["child"])
+
+    def test_copy_plugins_from_parent(self):
+        class Parent(SmartSwitchOwner):
+            root = SmartSwitch("root")
+            root.plug(TracePlugin, name="TraceParent", label="parent")
+
+        class ChildOwner(Parent):
+            branch = SmartSwitch("branch", parent=Parent.root, inherit_plugins=False)
+            branch.copy_plugins_from_parent()
+            branch.plug(TracePlugin, name="TraceChild", label="child")
+
+            @branch
+            def do_branch(self):
+                return "branch"
+
+        entry = ChildOwner.branch._methods["do_branch"]
+        self.assertEqual(entry.plugins, ["TraceParent", "TraceChild"])
+        self.assertEqual(entry.metadata["trace"], ["parent", "child"])
+
+    def test_register_plugin_by_name(self):
+        SmartSwitch.register_plugin("flag", FlagPlugin)
+        try:
+            class Owner(SmartSwitchOwner):
+                switch = SmartSwitch("switch")
+                switch.plug("flag")
+
+                @switch
+                def do_work(self):
+                    return "ok"
+
+            entry = Owner.switch._methods["do_work"]
+            self.assertIn("flag", entry.plugins)
+            self.assertTrue(entry.metadata["flagged"])
+        finally:
+            SmartSwitch._global_plugin_registry.pop("flag", None)
+
+    def test_unknown_registered_plugin_raises(self):
+        switch = SmartSwitch("switch")
+        with self.assertRaises(ValueError):
+            switch.plug("missing")
+
+    def test_plugin_config_per_method(self):
+        class Owner(SmartSwitchOwner):
+            gate = SmartSwitch("gate")
+            gate_plugin = gate.plug(GatePlugin)
+
+            @gate
+            def do_run(self, x):
+                return f"run:{x}"
+
+            @gate
+            def do_block(self, x):
+                return f"block:{x}"
+
+        Owner.gate_plugin.configure("do_block", blocked=True)
+        obj = Owner()
+        self.assertEqual(Owner.gate("do_run")(obj, 1), "run:1")
+        with self.assertRaises(RuntimeError):
+            Owner.gate("do_block")(obj, 2)
+
+    def test_plugin_config_enabled_flag(self):
+        class Owner(SmartSwitchOwner):
+            gate = SmartSwitch("gate")
+            gate_plugin = gate.plug(GatePlugin)
+
+            @gate
+            def do_stable(self, x):
+                return f"stable:{x}"
+
+        Owner.gate_plugin.configure(blocked=True)
+        owner = Owner()
+        with self.assertRaises(RuntimeError):
+            Owner.gate("do_stable")(owner, 1)
+        Owner.gate_plugin.configure("do_stable", enabled=False)
+        self.assertEqual(Owner.gate("do_stable")(owner, 2), "stable:2")
+
+    def test_smartasync_plugin_wraps_async_handler(self):
+        class Owner(SmartSwitchOwner):
+            api = SmartSwitch("api")
+            api.plug(SmartAsyncPlugin)
+
+            @api
+            async def do_async(self, value):
+                await asyncio.sleep(0)
+                return f"async:{value}"
+
+        obj = Owner()
+        handler = Owner.api("do_async")
+        self.assertEqual(handler(obj, "sync"), "async:sync")
+
+        async def runner():
+            return await handler(obj, "async")
+
+        self.assertEqual(asyncio.run(runner()), "async:async")
+
+    def test_smartasync_plugin_respects_pre_wrapped_functions(self):
+        class Owner(SmartSwitchOwner):
+            api = SmartSwitch("api")
+            api.plug(SmartAsyncPlugin)
+
+            @api
+            @smartasync
+            async def do_pre_wrapped(self):
+                await asyncio.sleep(0)
+                return "wrapped"
+
+        obj = Owner()
+        handler = Owner.api("do_pre_wrapped")
+        self.assertEqual(handler(obj), "wrapped")
+        entry = Owner.api._methods["do_pre_wrapped"]
+        self.assertFalse(entry.metadata["smartasync"]["wrapped"])
+
+    def test_dbop_plugin_injects_cursor_and_commits(self):
+        class Table(SmartSwitchOwner):
+            dbop = SmartSwitch("dbop")
+            dbop.plug(DbOpPlugin)
+
+            def __init__(self):
+                self.db = DummyDB()
+
+            @dbop
+            def add(self, value, cursor=None, autocommit=True):
+                cursor.execute("INSERT", (value,))
+                return "ok"
+
+        table = Table()
+        result = Table.dbop("add")(table, 10)
+        self.assertEqual(result, "ok")
+        self.assertEqual(table.db.commits, 1)
+
+    def test_dbop_plugin_rolls_back_on_error(self):
+        class Table(SmartSwitchOwner):
+            dbop = SmartSwitch("dbop")
+            dbop.plug(DbOpPlugin)
+
+            def __init__(self):
+                self.db = DummyDB()
+                self.db.fail_next = True
+
+            @dbop
+            def add(self, value, cursor=None, autocommit=True):
+                cursor.execute("INSERT", (value,))
+                return "ok"
+
+        table = Table()
+        handler = Table.dbop("add")
+        with self.assertRaises(RuntimeError):
+            handler(table, 10)
+        self.assertEqual(table.db.rollbacks, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
