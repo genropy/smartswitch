@@ -1,1059 +1,701 @@
 """
-SmartSwitch - Intelligent rule-based function dispatch for Python.
+Switcher - core implementation
 
-Optimized version with ~3x performance improvement over naive implementation.
+This module implements the first working iteration of Switcher,
+according to the high-level design we discussed.
+
+Key features implemented here:
+- Per-class Switcher instances.
+- Optional prefix-based name normalization.
+- Explicit alias for registration via @switch("alias").
+- Name collision detection at switch level.
+- Parent/child switch hierarchy (with children registered by name).
+- Local registry for methods (by logical name).
+- Plugins (BasePlugin) with on_decore + wrap_handler hooks.
+- Runtime enable/disable of plugins per instance/method/plugin/thread.
+- Per-instance, per-method, per-plugin, per-thread runtime data.
+- Named dispatch via switch("name")(...).
+- Dotted path dispatch via switch("child.sub.method")(...).
 """
 
-import inspect
-import json
-import logging
-import time
-from functools import partial, wraps
-from typing import Any, Union, get_args, get_origin
+from __future__ import annotations
+
+import contextvars
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Type, Tuple
 
 
-class BoundSwitcher:
+# ============================================================
+# THREAD-LOCAL CONTEXT
+# ============================================================
+
+_activation_ctx: contextvars.ContextVar = contextvars.ContextVar(
+    "smartswitch_activation", default=None
+)
+_runtime_ctx: contextvars.ContextVar = contextvars.ContextVar(
+    "smartswitch_runtime", default=None
+)
+
+
+def _get_activation_map() -> Dict[Any, bool]:
+    """Return the thread-local activation map."""
+    m = _activation_ctx.get()
+    if m is None:
+        m = {}
+        _activation_ctx.set(m)
+    return m
+
+
+def _get_runtime_map() -> Dict[Any, Dict[str, Any]]:
+    """Return the thread-local runtime data map."""
+    m = _runtime_ctx.get()
+    if m is None:
+        m = {}
+        _runtime_ctx.set(m)
+    return m
+
+
+# ============================================================
+# DATA STRUCTURES
+# ============================================================
+
+@dataclass
+class MethodEntry:
+    """Metadata and runtime info for a decorated method."""
+
+    name: str                       # logical registered name
+    func: Callable                  # original function
+    switch: "Switcher"         # owning switch
+    plugins: List[str]              # ordered plugin names
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class _PluginSpec:
+    """Factory metadata required to re-create a plugin."""
+
+    factory: Type["BasePlugin"]
+    kwargs: Dict[str, Any]
+    plugin_name: str
+
+    def clone(self) -> "_PluginSpec":
+        return _PluginSpec(self.factory, dict(self.kwargs), self.plugin_name)
+
+    def instantiate(self) -> "BasePlugin":
+        params = dict(self.kwargs)
+        if "name" not in params and self.plugin_name:
+            params["name"] = self.plugin_name
+        return self.factory(**params)
+
+
+# ============================================================
+# PLUGIN BASE
+# ============================================================
+
+class BasePlugin:
     """
-    A bound version of Switcher that automatically binds 'self' to retrieved handlers.
-    Created when accessing a Switcher instance as a class attribute.
+    Base class for Switcher plugins.
+
+    Plugins have two main hooks:
+
+    - on_decore(switch, func, entry):
+        Called once at decoration time. It can mutate entry.metadata.
+    - wrap_handler(switch, entry, call_next):
+        Called at wrapper-chain construction time.
+        Returns a wrapper callable that must call call_next.
     """
 
-    __slots__ = ("_switcher", "_instance")
+    def __init__(self, name: Optional[str] = None, **config: Any):
+        self.name = name or self.__class__.__name__
+        self._global_config: Dict[str, Any] = dict(config)
+        self._handler_configs: Dict[str, Dict[str, Any]] = {}
+        # Keep backward compatibility for plugins that accessed self.config directly
+        self.config = self._global_config
 
-    def __init__(self, switcher, instance):
-        self._switcher = switcher
-        self._instance = instance
+    # ------------------------------------------------------------
+    # Configuration helpers
+    # ------------------------------------------------------------
+    def configure(self, *method_names: str, **config: Any) -> None:
+        """Update global or per-method configuration.
 
-    def __getattr__(self, name):
-        """Delegate attribute access to the underlying Switcher."""
-        return getattr(self._switcher, name)
-
-    def __call__(self, name):
+        Without method names, updates global config; otherwise stores per-method overrides.
         """
-        Get a handler by name and bind it to the instance.
-        Supports dot notation for hierarchical navigation.
+        if not method_names:
+            self._global_config.update(config)
+            return
+        for name in method_names:
+            bucket = self._handler_configs.setdefault(name, {})
+            bucket.update(config)
 
-        Args:
-            name: Handler function name (supports dot notation like 'child.handler')
+    def get_config(self, method_name: Optional[str] = None) -> Dict[str, Any]:
+        """Return merged configuration for the given method name."""
+        merged = dict(self._global_config)
+        if method_name and method_name in self._handler_configs:
+            merged.update(self._handler_configs[method_name])
+        return merged
 
-        Returns:
-            Bound method ready to call without passing self
-        """
-        # Check for dot notation (hierarchical navigation)
-        if "." in name:
-            # Delegate to underlying Switcher's dot notation support
-            # which returns the handler, then bind it
-            handler = self._switcher(name)
-            # If it's already a HandlerOrDecorator, extract the actual function
-            if hasattr(handler, "__self__"):
-                # Already bound
-                return handler
-            # Bind to instance
-            bound = partial(handler, self._instance)
-            # Preserve __wrapped__ if available
-            if hasattr(handler, "__wrapped__"):
-                bound.__wrapped__ = handler.__wrapped__
-            return bound
+    def is_enabled_for(self, method_name: Optional[str] = None) -> bool:
+        """Determine whether the plugin is enabled for the given method."""
+        cfg = self.get_config(method_name)
+        enabled = cfg.get("enabled", True)
+        return bool(enabled)
 
-        # Standard lookup
-        func = self._switcher._handlers[name]
+    def to_spec(self) -> _PluginSpec:
+        """Return the specification needed to re-instantiate this plugin."""
+        kwargs: Dict[str, Any] = dict(self.config)
+        return _PluginSpec(self.__class__, kwargs, self.name)
 
-        # Apply logging wrapper if enabled
-        logged_func = self._switcher._wrap_with_logging(name, func)
+    def on_decore(
+        self,
+        switch: "Switcher",
+        func: Callable,
+        entry: MethodEntry,
+    ) -> None:
+        """Decoration-time hook (default: no-op)."""
+        return None
 
-        bound = partial(logged_func, self._instance)
-        # Add __wrapped__ attribute for introspection
-        bound.__wrapped__ = func
-        return bound
+    def wrap_handler(
+        self,
+        switch: "Switcher",
+        entry: MethodEntry,
+        call_next: Callable,
+    ) -> Callable:
+        """Return a wrapper around call_next (default: identity wrapper)."""
 
+        def wrapper(*args, **kwargs):
+            return call_next(*args, **kwargs)
+
+        return wrapper
+
+
+# ============================================================
+# SWITCH CALL PROXY
+# ============================================================
+
+class _SwitchCall:
+    """
+    A proxy object returned by Switcher when called with a string.
+
+    It can act both as:
+    - a decorator factory (when later called with a single callable)
+    - a named/dotted-path dispatch handle (when later called with normal args)
+    """
+
+    def __init__(self, switch: "Switcher", selector: str):
+        self._switch = switch
+        self._selector = selector
+
+    def __call__(self, *args, **kwargs):
+        # Decorator usage: @switch("alias")
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            func = args[0]
+            return self._switch._decorate(func, alias=self._selector)
+        # Runtime dispatch usage: switch("name")(*args)
+        return self._switch._dispatch_by_name(self._selector, *args, **kwargs)
+
+
+# ============================================================
+# SMART SWITCH
+# ============================================================
 
 class Switcher:
     """
-    Intelligent function dispatch based on type and value rules.
+    Switcher is a decorator + dispatcher + plugin container.
 
-    Supports three modes:
-    1. Dispatch by name: switch("handler_name")
-    2. Automatic dispatch: switch()(args) - chooses handler by rules
-    3. Both: register with name, dispatch automatically
+    Usage patterns:
 
-    Optimizations applied:
-    - Cached signature inspection (done once per function)
-    - Manual kwargs building (no expensive bind_partial)
-    - Pre-compiled type checkers
-    - __slots__ for reduced memory overhead
+        switch = Switcher("main", prefix="do_")
+
+        class My:
+            main = switch
+
+            @main
+            def do_run(self, x):
+                ...  # registered name: "run" because of prefix
+
+            @main("special")
+            def do_special(self, x):
+                ...  # registered name: "special" (alias wins)
+
+        # Named dispatch:
+        main("run")(instance, 10)
+        main("special")(instance, 20)
+
+        result = main("run")(instance, 10)
     """
 
-    __slots__ = (
-        "name",
-        "description",
-        "prefix",
-        "_parent",
-        "_children",
-        "_handlers",
-        "_rules",
-        "_default_handler",
-        "_param_names_cache",
-        "_plugins",
-        "_plugin_registry",
-        "_log_mode",
-        "_log_default",
-        "_log_handlers",
-        "_log_history",
-        "_log_max_history",
-        "_log_file",
-        "_logger",
-    )
-
-    # Global plugin registry - shared across all Switcher instances
-    _global_plugin_registry: dict[str, type] = {}
+    _global_plugin_registry: Dict[str, Type[BasePlugin]] = {}
 
     @classmethod
-    def register_plugin(cls, name: str, plugin_class: type) -> None:
-        """
-        Register a plugin globally by name.
-
-        This allows external plugins to register themselves so they can be
-        loaded by name using plug(name) without explicit imports.
-
-        Args:
-            name: Plugin name for registration (e.g., "redis", "mongodb")
-            plugin_class: Plugin class (not instance) to register
-
-        Example:
-            >>> from smartswitch import Switcher, BasePlugin
-            >>>
-            >>> class RedisPlugin(BasePlugin):
-            ...     def _wrap_handler(self, func, switcher):
-            ...         # ... implementation ...
-            ...         return func
-            >>>
-            >>> # Register plugin globally
-            >>> Switcher.register_plugin("redis", RedisPlugin)
-            >>>
-            >>> # Now can be used anywhere with just the name
-            >>> sw = Switcher().plug("redis")
-        """
+    def register_plugin(cls, name: str, plugin_class: Type[BasePlugin]) -> None:
+        """Register a plugin globally so it can be referenced by string name."""
+        if not isinstance(plugin_class, type) or not issubclass(plugin_class, BasePlugin):
+            raise TypeError("plugin_class must be a BasePlugin subclass")
         cls._global_plugin_registry[name] = plugin_class
+
+    @classmethod
+    def registered_plugins(cls) -> Dict[str, Type[BasePlugin]]:
+        """Return the map of registered plugin names to their classes."""
+        return dict(cls._global_plugin_registry)
 
     def __init__(
         self,
-        name: str = "default",
-        description: str | None = None,
-        prefix: str | None = None,
-        parent: "Switcher | None" = None,
+        name: Optional[str] = None,
+        *,
+        prefix: Optional[str] = None,
+        parent: Optional["Switcher"] = None,
+        inherit_plugins: Optional[bool] = None,
     ):
-        """
-        Initialize a new Switcher.
-
-        Args:
-            name: Optional name for this switch (for debugging)
-            description: Optional description for documentation/introspection
-            prefix: If set, auto-derive handler names by removing this prefix
-                    from decorated function names
-            parent: Optional parent Switcher for hierarchical API structure
-        """
         self.name = name
-        self.description = description
-        self.prefix = prefix
-        self._parent = None
-        self._children = set()
-        self._handlers = {}  # name -> function mapping
-        self._rules = []  # list of (matcher, function) tuples
-        self._default_handler = None  # default catch-all handler
-        self._param_names_cache = {}  # function -> param names cache
-        self._plugins = []  # List of plugins
-        self._plugin_registry = {}  # name -> plugin instance mapping
-
-        # Logging support (will be deprecated in favor of LoggingPlugin)
-        self._log_mode = None  # None, 'log', 'silent', 'both'
-        self._log_default = {}  # Default config: {'before': bool, 'after': bool, 'time': bool}
-        self._log_handlers = {}  # {handler_name: config_dict or False}
-        self._log_history = []  # List of log entries
-        self._log_max_history = 1000  # Max history size
-        self._log_file = None  # Optional log file path
-        self._logger = None  # logging.Logger instance
-
-        # Set parent after initialization (triggers property setter)
-        if parent is not None:
-            self.parent = parent
-
-    def plug(self, plugin, name=None, **kwargs):
-        """
-        Add a plugin to this Switcher.
-
-        Plugins extend Switcher functionality by wrapping handlers during registration.
-        Standard plugins can be specified by name (string), external plugins by instance.
-
-        Args:
-            plugin: Either a plugin name (str) for standard plugins,
-                   or a plugin instance for external plugins
-            name: Custom name for plugin access (optional, uses plugin's default if not provided)
-            **kwargs: Configuration parameters (only for string names)
-
-        Returns:
-            Self for method chaining
-
-        Examples:
-            Standard plugins (by name):
-
-            >>> sw = Switcher()
-            >>> sw.plug('logging', mode='silent', time=True)
-            <Switcher...>
-            >>> sw.logger.get_log_history()  # Access via default name 'logger'
-
-            Custom plugin names:
-
-            >>> sw.plug('logging', name='mylog', mode='silent')
-            >>> sw.mylog.get_log_history()  # Access via custom name
-
-            External plugins (by class):
-
-            >>> from smartasync import SmartAsyncPlugin
-            >>> sw.plug(SmartAsyncPlugin())
-            <Switcher...>
-
-            Chaining:
-
-            >>> sw = (Switcher(name="api")
-            ...       .plug('logging', mode='log')
-            ...       .plug('typerule')
-            ...       .plug(SmartAsyncPlugin()))
-        """
-        if isinstance(plugin, str):
-            # Lookup standard plugin by name
-            plugin_name = plugin
-            plugin = self._get_standard_plugin(plugin, **kwargs)
+        if prefix is None:
+            self.prefix = parent.prefix if parent is not None else ""
         else:
-            plugin_name = None
+            self.prefix = prefix
+        self.parent: Optional["Switcher"] = None
 
-        self._plugins.append(plugin)
+        self._local_plugins: List[BasePlugin] = []
+        self._local_plugin_specs: List[_PluginSpec] = []
+        self._inherited_plugins: List[BasePlugin] = []
+        self._inherited_plugin_specs: List[_PluginSpec] = []
+        self._inherit_plugins: bool = (
+            True if inherit_plugins is None else bool(inherit_plugins)
+        )
+        self._using_parent_plugins: bool = False
+        self._children: Dict[str, "Switcher"] = {}
+        self._methods: Dict[str, MethodEntry] = {}
 
-        # Register plugin by name for __getattr__ access
-        if name:
-            # Use custom name
-            self._plugin_registry[name] = plugin
-        elif hasattr(plugin, "plugin_name"):
-            # Use plugin's default name
-            self._plugin_registry[plugin.plugin_name] = plugin
-        elif plugin_name:
-            # Fallback: use the string name used to load it
-            self._plugin_registry[plugin_name] = plugin
+        if parent is not None:
+            parent.add_child(self)
 
-        return self  # For chaining
-
-    def _get_standard_plugin(self, name: str, **kwargs):
+    # --------------------------------------------------------
+    # Children
+    # --------------------------------------------------------
+    def add_child(self, child: Any, name: Optional[str] = None) -> None:
         """
-        Lookup and instantiate a plugin by name from global registry.
+        Attach a child switch or scan an arbitrary object for switchers.
 
         Args:
-            name: Plugin name (e.g., 'logging', 'pydantic', or any registered plugin)
-            **kwargs: Plugin configuration parameters
+            child: Either a Switcher instance or any object exposing Switchers.
+            name: Optional explicit child name (only used when child is a Switcher).
+        """
+        if isinstance(child, Switcher):
+            self._attach_child_switcher(child, explicit_name=name)
+            return
+
+        discovered = list(self._iter_unbound_switchers(child))
+        if not discovered:
+            raise TypeError(
+                f"Object {child!r} does not expose any Switcher instances without a parent"
+            )
+        for attr_name, switch in discovered:
+            derived_name = switch.name or attr_name
+            self._attach_child_switcher(switch, explicit_name=derived_name)
+
+    def get_child(self, name: str) -> "Switcher":
+        try:
+            return self._children[name]
+        except KeyError:
+            raise KeyError(f"No child switch named {name!r} in {self!r}")
+
+    def _attach_child_switcher(self, child: "Switcher", explicit_name: Optional[str] = None) -> None:
+        """Attach an actual Switcher instance as a child."""
+        if child is self:
+            raise ValueError("Cannot attach a switch to itself")
+        if child.parent is not None and child.parent is not self:
+            raise ValueError("Child already has a different parent")
+        key = explicit_name or (child.name or "child")
+        if key in self._children and self._children[key] is not child:
+            raise ValueError(f"Child name collision: {key}")
+        self._children[key] = child
+        child.parent = self
+        child._sync_parent_plugins()
+        if child._inherit_plugins and child.parent is not None:
+            child._using_parent_plugins = True
+            child._local_plugins.clear()
+            child._local_plugin_specs.clear()
+
+    @staticmethod
+    def _iter_unbound_switchers(source: Any) -> Iterator[Tuple[str, "Switcher"]]:
+        """
+        Yield (attribute_name, switcher) pairs for Switchers without a parent.
+        """
+        if source is None:
+            return iter(())
+
+        seen: Set[int] = set()
+
+        def visit(mapping: Dict[str, Any]) -> Iterator[Tuple[str, "Switcher"]]:
+            for attr_name, value in mapping.items():
+                if attr_name.startswith("__") and attr_name.endswith("__"):
+                    continue
+                if isinstance(value, Switcher) and value.parent is None:
+                    ident = id(value)
+                    if ident in seen:
+                        continue
+                    seen.add(ident)
+                    yield attr_name, value
+
+        def generator() -> Iterator[Tuple[str, "Switcher"]]:
+            instance_dict = getattr(source, "__dict__", None)
+            if instance_dict:
+                yield from visit(instance_dict)
+            yield from visit(vars(type(source)))
+
+        return generator()
+
+    # --------------------------------------------------------
+    # Plugin management
+    # --------------------------------------------------------
+    def plug(self, plugin: Any, **config: Any) -> "Switcher":
+        """Attach a plugin instance, class, or registered name to this switch."""
+        if isinstance(plugin, str):
+            try:
+                plugin_class = self._global_plugin_registry[plugin]
+            except KeyError:
+                available = ", ".join(sorted(self._global_plugin_registry.keys()))
+                raise ValueError(
+                    f"Unknown plugin name {plugin!r}. Registered plugins: {available or 'none'}"
+                )
+            init_kwargs = dict(config)
+            init_kwargs.setdefault("name", plugin)
+            p = plugin_class(**init_kwargs)
+            spec = _PluginSpec(plugin_class, init_kwargs, p.name)
+        elif isinstance(plugin, type) and issubclass(plugin, BasePlugin):
+            init_kwargs = dict(config)
+            p = plugin(**init_kwargs)
+            spec = _PluginSpec(plugin, init_kwargs, p.name)
+        elif isinstance(plugin, BasePlugin):
+            p = plugin
+            p.config.update(config)
+            spec = p.to_spec()
+        else:
+            raise TypeError("plugin must be BasePlugin subclass or instance")
+        if self._using_parent_plugins:
+            self._using_parent_plugins = False
+            self._inherit_plugins = False
+            self._local_plugins.clear()
+            self._local_plugin_specs.clear()
+        self._local_plugins.append(p)
+        self._local_plugin_specs.append(spec)
+        return self
+
+    def iter_plugins(self) -> List[BasePlugin]:
+        """Return ordered list of active plugins for this switch."""
+        if self._using_parent_plugins:
+            return list(self._inherited_plugins)
+        return list(self._local_plugins)
+
+    def iter_plugin_specs(self) -> List[_PluginSpec]:
+        """Return ordered list of plugin specifications."""
+        source = (
+            self._inherited_plugin_specs if self._using_parent_plugins else self._local_plugin_specs
+        )
+        return [spec.clone() for spec in source]
+
+    def plugin(self, name: str) -> Optional[BasePlugin]:
+        """
+        Get a plugin by name.
+
+        Args:
+            name: The plugin name to search for
 
         Returns:
-            Plugin instance
+            The plugin instance if found, None otherwise
+
+        Example:
+            sw = Switcher().plug("logging", mode="silent")
+            logger = sw.plugin("logging")
+            history = logger.history()
+        """
+        for p in self.iter_plugins():
+            if p.name == name:
+                return p
+        return None
+
+    def __getattr__(self, name: str) -> BasePlugin:
+        """
+        Dynamic plugin access by attribute name.
+
+        Allows accessing any attached plugin as an attribute.
+        All plugins are treated uniformly - no special cases.
+
+        Args:
+            name: Plugin name to search for
+
+        Returns:
+            The plugin instance if found
 
         Raises:
-            ValueError: If plugin name is not registered
+            AttributeError: If no plugin with that name exists
+
+        Example:
+            sw = Switcher().plug("logging", mode="silent")
+            history = sw.logging.history()
         """
-        if name not in self._global_plugin_registry:
-            available = ", ".join(sorted(self._global_plugin_registry.keys()))
+        plugin = self.plugin(name)
+        if plugin is not None:
+            return plugin
+
+        # Not found - raise AttributeError
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}' "
+            f"and no plugin named '{name}' is attached"
+        )
+
+    def use_parent_plugins(self) -> None:
+        """Drop local plugins and reuse the parent's plugin stack."""
+        if self.parent is None:
+            raise ValueError("This switch has no parent to inherit plugins from")
+        self._inherit_plugins = True
+        self._sync_parent_plugins()
+        self._using_parent_plugins = True
+        self._local_plugins.clear()
+        self._local_plugin_specs.clear()
+
+    def copy_plugins_from_parent(self) -> None:
+        """Copy the parent's plugin stack into local plugins."""
+        if self.parent is None:
+            raise ValueError("This switch has no parent to copy plugins from")
+        self._sync_parent_plugins()
+        self._inherit_plugins = False
+        self._using_parent_plugins = False
+        self._local_plugin_specs = [spec.clone() for spec in self._inherited_plugin_specs]
+        self._local_plugins = [spec.instantiate() for spec in self._local_plugin_specs]
+
+    # --------------------------------------------------------
+    # Plugin inheritance sync
+    # --------------------------------------------------------
+    def _sync_parent_plugins(self) -> None:
+        if self.parent is None:
+            self._inherited_plugin_specs = []
+            self._inherited_plugins = []
+            return
+        parent_specs = self.parent.iter_plugin_specs()
+        self._inherited_plugin_specs = [spec.clone() for spec in parent_specs]
+        self._inherited_plugins = [spec.instantiate() for spec in self._inherited_plugin_specs]
+
+    # --------------------------------------------------------
+    # Name normalization & collision detection
+    # --------------------------------------------------------
+    def _normalize_name(self, func_name: str, alias: Optional[str]) -> str:
+        if alias:
+            name = alias
+        elif self.prefix and func_name.startswith(self.prefix):
+            name = func_name[len(self.prefix):]
+        else:
+            name = func_name
+        if name in self._methods:
             raise ValueError(
-                f"Unknown plugin: '{name}'. "
-                f"Available plugins: {available}\n"
-                f"External plugins can be registered with: "
-                f"Switcher.register_plugin(name, PluginClass)"
+                f"Method name collision in switch {self.name!r}: {name!r} already registered"
+            )
+        return name
+
+    # --------------------------------------------------------
+    # Decoration
+    # --------------------------------------------------------
+    def _decorate(
+        self,
+        func: Callable,
+        *,
+        alias: Optional[str] = None,
+    ) -> Callable:
+        logical_name = self._normalize_name(func.__name__, alias=alias)
+
+        entry = MethodEntry(
+            name=logical_name,
+            func=func,
+            switch=self,
+            plugins=[p.name for p in self.iter_plugins()],
+            metadata={},
+        )
+
+        # Run decoration-time plugin hooks (they may mutate entry.func)
+        for plugin in self.iter_plugins():
+            plugin.on_decore(self, func, entry)
+
+        base_callable = entry.func
+
+        # Build wrapper chain
+        wrapped = base_callable
+        for plugin in reversed(self.iter_plugins()):
+            next_layer = wrapped
+
+            def make_layer(plg: BasePlugin, call_next: Callable) -> Callable:
+                plugin_name = plg.name
+                entry_name = entry.name
+                wrapped_call = plg.wrap_handler(self, entry, call_next)
+
+                def layer(*args, **kwargs):
+                    if hasattr(plg, "is_enabled_for") and not plg.is_enabled_for(entry_name):
+                        return call_next(*args, **kwargs)
+                    instance = args[0] if args else None
+                    if not self.is_plugin_enabled(instance, entry_name, plugin_name):
+                        return call_next(*args, **kwargs)
+                    return wrapped_call(*args, **kwargs)
+
+                return layer
+
+            wrapped = make_layer(plugin, next_layer)
+
+        # Store metadata on wrapped function for debugging
+        setattr(wrapped, "__smartswitch_entry__", entry)
+        # Also keep a reference to the final wrapped callable
+        entry._wrapped = wrapped  # type: ignore[attr-defined]
+
+        # Save in registry
+        self._methods[logical_name] = entry
+
+        return wrapped
+
+    # --------------------------------------------------------
+    # __call__ - decorator or dispatch
+    # --------------------------------------------------------
+    def __call__(self, *args, **kwargs):
+        """
+        Overloaded behavior:
+
+        1) As a plain decorator: @switch
+           -> switch(func)
+
+        2) As a decorator factory with alias:
+           @switch("alias")
+
+        3) As a named/dotted-path dispatch handle:
+           switch("name")(*args)
+           switch("a.b.name")(*args)
+        """
+        # CASE 1: @switch
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            func = args[0]
+            return self._decorate(func)
+
+        # CASE 2/3: first arg is string -> alias OR named dispatch
+        if len(args) >= 1 and isinstance(args[0], str):
+            selector = args[0]
+            if len(args) == 1 and not kwargs:
+                # Named/dotted path dispatch handle: switch("name")
+                return _SwitchCall(self, selector)
+
+            raise TypeError(
+                "Switcher selector usage only supports a single string argument. "
+                "Call the returned handle to execute handlers."
             )
 
-        plugin_class = self._global_plugin_registry[name]
-        return plugin_class(**kwargs)
+        raise TypeError(
+            "Switcher no longer supports implicit dispatch. "
+            "Call switch('name') to get a callable handler."
+        )
 
-    def __getattr__(self, name: str):
-        """
-        Enable plugin access via attribute syntax.
+    # --------------------------------------------------------
+    # Plugin activation / runtime data
+    # --------------------------------------------------------
+    @staticmethod
+    def _activation_key(instance: Any, method_name: str, plugin_name: str) -> Tuple[int, str, str]:
+        instance_id = id(instance) if instance is not None else 0
+        return (instance_id, method_name, plugin_name)
 
-        This allows accessing plugins by name: sw.logger.get_log_history()
-
-        Args:
-            name: Attribute name (plugin name)
-
-        Returns:
-            Plugin instance if registered
-
-        Raises:
-            AttributeError: If attribute or plugin not found
-
-        Examples:
-            >>> sw = Switcher().plug('logging', mode='silent')
-            >>> sw.logger.get_log_history()  # Access plugin by default name
-            []
-
-            >>> sw.plug('logging', name='mylog', mode='silent')
-            >>> sw.mylog.get_log_history()  # Access plugin by custom name
-            []
-        """
-        # Check if it's a registered plugin
-        if name in self._plugin_registry:
-            return self._plugin_registry[name]
-
-        # Otherwise raise standard AttributeError
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-
-    def __call__(
+    def set_plugin_enabled(
         self,
-        arg: Any = None,
-        *,
-        typerule: dict[str, type] | None = None,
-        valrule: Any = None,
+        instance: Any,
+        method_name: str,
+        plugin_name: str,
+        enabled: bool = True,
+    ) -> None:
+        m = _get_activation_map()
+        m[self._activation_key(instance, method_name, plugin_name)] = enabled
+
+    def is_plugin_enabled(
+        self,
+        instance: Any,
+        method_name: str,
+        plugin_name: str,
+    ) -> bool:
+        m = _get_activation_map()
+        key = self._activation_key(instance, method_name, plugin_name)
+        value = m.get(key, None)
+        if value is None:
+            return True
+        return bool(value)
+
+    @staticmethod
+    def _runtime_key(instance: Any, method_name: str, plugin_name: str) -> Tuple[int, str, str]:
+        instance_id = id(instance) if instance is not None else 0
+        return (instance_id, method_name, plugin_name)
+
+    def set_runtime_data(
+        self,
+        instance: Any,
+        method_name: str,
+        plugin_name: str,
+        key: str,
+        value: Any,
+    ) -> None:
+        m = _get_runtime_map()
+        slot = m.setdefault(self._runtime_key(instance, method_name, plugin_name), {})
+        slot[key] = value
+
+    def get_runtime_data(
+        self,
+        instance: Any,
+        method_name: str,
+        plugin_name: str,
+        key: str,
+        default: Any = None,
     ) -> Any:
+        m = _get_runtime_map()
+        slot = m.get(self._runtime_key(instance, method_name, plugin_name), {})
+        return slot.get(key, default)
+
+    # --------------------------------------------------------
+    # Dispatch helpers
+    # --------------------------------------------------------
+    def _resolve_path(self, selector: str) -> Tuple["Switcher", str]:
         """
-        Multi-purpose call method supporting different invocation patterns.
+        Resolve a dotted path "a.b.c.method" into (switch, method_name).
 
-        Patterns:
-        1. @switch                    -> register as default handler
-        2. @switch('alias')           -> register with custom name
-        3. @switch(typerule=..., valrule=...) -> register with rules
-        4. switch("name")            -> get handler by name
-        5. switch()                  -> get dispatcher function
-
-        Args:
-            arg: Function to decorate, handler name, or None for dispatcher
-            typerule: Dict mapping parameter names to expected types
-            valrule: Callable that receives **kwargs and returns bool
-
-        Returns:
-            Decorated function, handler, or dispatcher depending on usage
+        If there are no dots, returns (self, selector).
         """
-        # Case 1: @switch (decorator without parameters - default handler)
-        if callable(arg) and typerule is None and valrule is None:
-            # Derive handler name (with optional prefix stripping)
-            if self.prefix and arg.__name__.startswith(self.prefix):
-                handler_name = arg.__name__[len(self.prefix) :]
-            else:
-                handler_name = arg.__name__
-
-            # Check for duplicates
-            if handler_name in self._handlers:
-                existing = self._handlers[handler_name]
-                raise ValueError(
-                    f"Handler '{handler_name}' already taken by function '{existing.__name__}'"
-                )
-
-            # Initialize plugin metadata dictionary
-            if not hasattr(arg, "_plugin_meta"):
-                arg._plugin_meta = {}
-
-            # Apply plugins
-            wrapped = arg
-            for plugin in self._plugins:
-                # Call on_decorate hook first (notification)
-                plugin.on_decorate(arg, self)
-                # Then wrap the function
-                wrapped = plugin.wrap(wrapped, self)
-
-            self._handlers[handler_name] = wrapped
-            self._default_handler = wrapped
-            return wrapped
-
-        # Case 2: @switch('alias') - register with custom name OR lookup
-        if isinstance(arg, str) and typerule is None and valrule is None:
-            # Check for dot notation (hierarchical navigation)
-            if "." in arg:
-                parts = arg.split(".", 1)
-                child_name = parts[0]
-                remaining = parts[1]
-
-                # Find child by name
-                for child in self._children:
-                    if child.name == child_name:
-                        # Recursively navigate
-                        return child(remaining)
-
-                # Child not found
-                raise KeyError(f"Child Switcher '{child_name}' not found")
-
-            # No dot notation - standard behavior
-            # If handler exists, check if being used as decorator or lookup
-            if arg in self._handlers:
-                handler = self._handlers[arg]
-
-                # Apply logging wrapper if enabled
-                logged_handler = self._wrap_with_logging(arg, handler)
-
-                # Create a wrapper that can be used both ways
-                class HandlerOrDecorator:
-                    def __call__(self, *args, **kwargs):
-                        # If called with a function as first arg and it's callable,
-                        # assume decorator usage
-                        if len(args) == 1 and callable(args[0]) and not kwargs:
-                            # Check if it looks like it's being used as decorator
-                            # (single callable argument, no other args)
-                            import inspect
-
-                            if inspect.isfunction(args[0]) or inspect.ismethod(args[0]):
-                                raise ValueError(f"Alias '{arg}' is already registered")
-                        # Normal function call
-                        return logged_handler(*args, **kwargs)
-
-                wrapper = HandlerOrDecorator()
-                # Add __wrapped__ attribute for introspection tools
-                wrapper.__wrapped__ = handler
-                return wrapper
-
-            # Not found, return decorator for registration
-            def decorator(func):
-                self._handlers[arg] = func
-                return func
-
-            return decorator
-
-        # Case 3: @switch(typerule=..., valrule=...) - returns decorator
-        if typerule is not None or valrule is not None:
-            # Detect valrule calling convention
-            valrule_takes_dict = False
-            valrule_needs_unpack = False  # True for **kw style
-            if valrule is not None:
-                valrule_sig = inspect.signature(valrule)
-                params = valrule_sig.parameters
-
-                # Compact dict syntax comes in two forms:
-                # 1. Single positional param named 'kw', 'kwargs', or 'args'
-                #    e.g., lambda kw: kw['mode'] == 'test'
-                #    Call with: valrule(args_dict)
-                # 2. VAR_KEYWORD parameter (**kw)
-                #    e.g., lambda **kw: kw.get('mode') == 'test'
-                #    Call with: valrule(**args_dict)
-
-                positional_params = [
-                    name
-                    for name, p in params.items()
-                    if p.kind
-                    not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
-                ]
-                has_var_keyword = any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-                )
-
-                if len(positional_params) == 1 and list(positional_params)[0] in (
-                    "kw",
-                    "kwargs",
-                    "args",
-                ):
-                    valrule_takes_dict = True
-                    valrule_needs_unpack = False
-                elif has_var_keyword and len(positional_params) == 0:
-                    valrule_takes_dict = True
-                    valrule_needs_unpack = True
-
-            def decorator(func):
-                # OPTIMIZATION: Cache signature once
-                sig = inspect.signature(func)
-                param_names = list(sig.parameters.keys())
-                self._param_names_cache[func] = param_names
-
-                # OPTIMIZATION: Pre-compile type checks
-                if typerule:
-                    type_checks = self._compile_type_checks(typerule, param_names)
-                else:
-                    type_checks = None
-
-                # OPTIMIZATION: Optimized matcher - no bind_partial
-                def matches(*a, **kw):
-                    # Build args dict manually (much faster than bind_partial)
-                    args_dict = {}
-                    for i, name in enumerate(param_names):
-                        if i < len(a):
-                            args_dict[name] = a[i]
-                        elif name in kw:
-                            args_dict[name] = kw[name]
-
-                    # Type checks
-                    if type_checks:
-                        for name, checker in type_checks:
-                            if name in args_dict and not checker(args_dict[name]):
-                                return False
-
-                    # Value rule - support both calling conventions
-                    if valrule:
-                        if valrule_takes_dict:
-                            # Compact syntax
-                            if valrule_needs_unpack:
-                                # lambda **kw: kw.get('x') > 10
-                                if not valrule(**args_dict):
-                                    return False
-                            else:
-                                # lambda kw: kw['x'] > 10
-                                if not valrule(args_dict):
-                                    return False
-                        else:
-                            # Expanded syntax: lambda x, y: x > 10
-                            if not valrule(**args_dict):
-                                return False
-
-                    return True
-
-                self._rules.append((matches, func))
-                # Register by name so it can be retrieved with sw('name')
-                self._handlers[func.__name__] = func
-                return func
-
-            return decorator
-
-        # Case 4: switch() - invoker
-        if arg is None:
-
-            def invoker(*a, **kw):
-                # Check specific rules first
-                for cond, func in self._rules:
-                    if cond(*a, **kw):
-                        return func(*a, **kw)
-                # Check default last
-                if self._default_handler:
-                    return self._default_handler(*a, **kw)
-                raise ValueError(f"No rule matched for {a}, {kw}")
-
-            return invoker
-
-        raise TypeError("Switcher.__call__ expects callable, str, or None")
-
-    def __get__(self, instance: Any, owner: type | None = None) -> "Switcher | BoundSwitcher":
-        """
-        Descriptor protocol support for automatic method binding.
-
-        When a Switcher is accessed as a class attribute, this returns
-        a BoundSwitcher that automatically binds 'self' to retrieved handlers.
-
-        Args:
-            instance: The instance accessing this descriptor
-            owner: The class owning this descriptor
-
-        Returns:
-            BoundSwitcher if accessed from instance, self if accessed from class
-        """
-        if instance is None:
-            # Accessed from class, return the switcher itself
-            return self
-        # Accessed from instance, return bound version
-        return BoundSwitcher(self, instance)
-
-    def _compile_type_checks(self, typerule, param_names):
-        """
-        Pre-compile type checkers for faster runtime evaluation.
-
-        Args:
-            typerule: Dict mapping parameter names to types
-            param_names: List of parameter names from function signature
-
-        Returns:
-            List of (param_name, checker_function) tuples
-        """
-        checks = []
-        for name, hint in typerule.items():
-            if name not in param_names:
-                continue
-
-            # Create optimized checker for this type
-            checker = self._make_type_checker(hint)
-            checks.append((name, checker))
-
-        return checks
-
-    def _make_type_checker(self, hint):
-        """
-        Create an optimized type checking function.
-
-        Args:
-            hint: Type hint to check against
-
-        Returns:
-            Function that takes a value and returns bool
-        """
-        # Fast path for Any
-        if hint is Any:
-            return lambda val: True
-
-        origin = get_origin(hint)
-
-        # Union types (e.g., int | str)
-        if origin is Union:
-            args = get_args(hint)
-            # Pre-compile checkers for each union member
-            checkers = [self._make_type_checker(t) for t in args]
-            return lambda val: any(c(val) for c in checkers)
-
-        # Simple type check
-        return lambda val: isinstance(val, hint)
-
-    def entries(self):
-        """
-        List all registered handler names.
-
-        Returns:
-            List of handler names registered in this Switcher
-        """
-        return list(self._handlers.keys())
-
-    @property
-    def parent(self) -> "Switcher | None":
-        """
-        Get the parent Switcher.
-
-        Returns:
-            Parent Switcher instance or None if no parent
-        """
-        return self._parent
-
-    @parent.setter
-    def parent(self, value: "Switcher | None"):
-        """
-        Set the parent Switcher with automatic bidirectional registration.
-
-        When setting a parent:
-        1. Unregisters from old parent (if any)
-        2. Sets new parent
-        3. Registers with new parent's children
-
-        Args:
-            value: Parent Switcher instance or None to unset parent
-        """
-        # Unregister from old parent
-        if self._parent is not None:
-            self._parent._children.discard(self)
-
-        # Set new parent
-        self._parent = value
-
-        # Register with new parent
-        if value is not None:
-            value._children.add(self)
-
-    @property
-    def children(self) -> set["Switcher"]:
-        """
-        Get all child Switchers.
-
-        Returns:
-            Set of child Switcher instances
-        """
-        return self._children.copy()
-
-    def add_child(self, switcher: "Switcher") -> "Switcher":
-        """
-        Add a child Switcher and return it.
-
-        This also sets this Switcher as the child's parent.
-        Returns the child so it can be used as a decorator.
-
-        Args:
-            switcher: Child Switcher to add
-
-        Returns:
-            The child Switcher (for chaining/assignment)
-
-        Raises:
-            TypeError: If switcher is not a Switcher instance
-        """
-        if not isinstance(switcher, Switcher):
-            raise TypeError(f"Expected Switcher instance, got {type(switcher)}")
-
-        # Setting parent will automatically add to children via property setter
-        switcher.parent = self
-        return switcher
-
-    def add(self, switcher: "Switcher") -> "Switcher":
-        """
-        Alias for add_child(). Add a child Switcher and return it.
-
-        This is a shorter, more convenient alias for add_child().
-
-        Args:
-            switcher: Child Switcher to add
-
-        Returns:
-            The child Switcher (for chaining/assignment)
-        """
-        return self.add_child(switcher)
-
-    def remove_child(self, switcher: "Switcher"):
-        """
-        Remove a child Switcher.
-
-        This also unsets the child's parent.
-
-        Args:
-            switcher: Child Switcher to remove
-        """
-        if switcher in self._children:
-            # Setting parent to None will automatically remove from children
-            switcher.parent = None
-
-    def enable_log(
-        self,
-        *handler_names: str,
-        mode: str = "silent",
-        before: bool = True,
-        after: bool = True,
-        time: bool = True,
-        log_file: str | None = None,
-        log_format: str = "json",
-        max_history: int = 1000,
-    ):
-        """
-        Enable logging for handlers.
-
-        Args:
-            *handler_names: Handler names to enable logging for. If empty, enables for all.
-            mode: Logging mode - 'log' (immediate logging), 'silent' (history only),
-                  'both' (logging + history). Default: 'silent'
-            before: Log before handler execution (args, kwargs)
-            after: Log after handler execution (result or exception)
-            time: Measure and log execution time
-            log_file: Optional path to log file (JSONL format)
-            log_format: Log format - 'json' or 'jsonl' (same as 'json')
-            max_history: Maximum number of entries in history (default: 1000)
-        """
-        # Validate mode
-        if mode not in ("log", "silent", "both"):
-            raise ValueError(f"Invalid mode: {mode}. Must be 'log', 'silent', or 'both'")
-
-        # Set global log mode
-        self._log_mode = mode
-        self._log_max_history = max_history
-        self._log_file = log_file
-
-        # Create logger if needed
-        if mode in ("log", "both") and self._logger is None:
-            self._logger = logging.getLogger(f"smartswitch.{self.name}")
-            if not self._logger.handlers:
-                handler = logging.StreamHandler()
-                handler.setFormatter(
-                    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-                )
-                self._logger.addHandler(handler)
-                self._logger.setLevel(logging.INFO)
-
-        # Set default config
-        self._log_default = {"before": before, "after": after, "time": time}
-
-        # If handler names specified, set their config
-        if handler_names:
-            config = {"before": before, "after": after, "time": time}
-            for name in handler_names:
-                self._log_handlers[name] = config
-        # If no names, clear handler-specific configs (all use default)
-        else:
-            self._log_handlers.clear()
-
-    def disable_log(self, *handler_names: str):
-        """
-        Disable logging for specific handlers or globally.
-
-        Args:
-            *handler_names: Handler names to disable logging for.
-                           If empty, disables logging globally.
-        """
-        if handler_names:
-            # Disable specific handlers
-            for name in handler_names:
-                self._log_handlers[name] = False
-        else:
-            # Disable globally
-            self._log_mode = None
-            self._log_default.clear()
-            self._log_handlers.clear()
-
-    def _get_log_config(self, handler_name: str) -> dict | None:
-        """
-        Get the effective logging configuration for a handler.
-
-        Args:
-            handler_name: Name of the handler
-
-        Returns:
-            Config dict with 'before', 'after', 'time' keys, or None if logging disabled
-        """
-        # No logging enabled
-        if self._log_mode is None:
-            return None
-
-        # Check if handler explicitly disabled
-        if handler_name in self._log_handlers and self._log_handlers[handler_name] is False:
-            return None
-
-        # Check if handler has specific config
-        if handler_name in self._log_handlers:
-            return self._log_handlers[handler_name]
-
-        # If _log_handlers has entries that are dicts (not False),
-        # it means specific handlers were configured, so other handlers shouldn't be logged
-        has_specific_configs = any(isinstance(v, dict) for v in self._log_handlers.values())
-        if has_specific_configs:
-            return None
-
-        # Use default config
-        return self._log_default if self._log_default else None
-
-    def _wrap_with_logging(self, handler_name: str, func):
-        """
-        Wrap a handler function with logging.
-
-        Args:
-            handler_name: Name of the handler
-            func: Function to wrap
-
-        Returns:
-            Wrapped function that logs calls
-        """
-        config = self._get_log_config(handler_name)
-        if config is None:
-            return func
-
-        @wraps(func)
-        def logged_wrapper(*args, **kwargs):
-            # Prepare log entry
-            entry = {
-                "handler": handler_name,
-                "switcher": self.name,
-                "timestamp": time.time(),
-                "args": args,
-                "kwargs": kwargs,
-            }
-
-            # Log before if enabled
-            if config.get("before") and self._log_mode in ("log", "both"):
-                if self._logger:
-                    self._logger.info(f"Calling {handler_name} with args={args}, kwargs={kwargs}")
-
-            # Execute handler and measure time
-            start_time = time.time() if config.get("time") else None
-            exception = None
-            result = None
-
-            try:
-                result = func(*args, **kwargs)
-                entry["result"] = result
-            except Exception as e:
-                exception = e
-                entry["exception"] = {
-                    "type": type(e).__name__,
-                    "message": str(e),
+        if "." not in selector:
+            return self, selector
+        parts = selector.split(".")
+        node: Switcher = self
+        for seg in parts[:-1]:
+            node = node.get_child(seg)
+        return node, parts[-1]
+
+    def _dispatch_by_name(self, selector: str, *args, **kwargs):
+        node, method_name = self._resolve_path(selector)
+        try:
+            entry = node._methods[method_name]
+        except KeyError:
+            raise KeyError(f"Unknown method {method_name!r} for selector {selector!r}")
+        # Use the wrapped function we built at decoration time
+        wrapped = getattr(entry.func, "__wrapped__", None)
+        # We did not attach __wrapped__, so use the final wrapper chain we created:
+        # we stored only the original func; we must reconstruct a bound wrapper.
+        # Instead, we can re-build the wrapper chain when decorating and store
+        # the final wrapper inside metadata; let's do that from now on.
+        wrapped = getattr(entry, "_wrapped", None)
+        if wrapped is None:
+            # As a fallback (should not happen if _decorate sets _wrapped):
+            wrapped = entry.func
+        return wrapped(*args, **kwargs)
+
+    # --------------------------------------------------------
+    # Introspection
+    # --------------------------------------------------------
+    def describe(self) -> Dict[str, Any]:
+        """Return a dictionary describing this switch and its children."""
+        return {
+            "name": self.name,
+            "prefix": self.prefix,
+            "plugins": [p.name for p in self.iter_plugins()],
+            "methods": {
+                name: {
+                    "plugins": entry.plugins,
+                    "metadata_keys": list(entry.metadata.keys()),
                 }
-                raise
-            finally:
-                # Add elapsed time if enabled
-                if start_time is not None:
-                    entry["elapsed"] = time.time() - start_time
-
-                # Add to history if mode is 'silent' or 'both'
-                if self._log_mode in ("silent", "both"):
-                    self._log_history.append(entry)
-                    # Trim history if needed
-                    if len(self._log_history) > self._log_max_history:
-                        self._log_history.pop(0)
-
-                # Log after if enabled
-                if config.get("after") and self._log_mode in ("log", "both"):
-                    if self._logger:
-                        if exception:
-                            elapsed_str = (
-                                f" (elapsed: {entry['elapsed']:.4f}s)" if "elapsed" in entry else ""
-                            )
-                            exc_type = type(exception).__name__
-                            self._logger.error(
-                                f"{handler_name} raised {exc_type}: {exception}{elapsed_str}"
-                            )
-                        else:
-                            elapsed_str = (
-                                f" (elapsed: {entry['elapsed']:.4f}s)" if "elapsed" in entry else ""
-                            )
-                            self._logger.info(f"{handler_name} returned {result}{elapsed_str}")
-
-                # Write to log file if configured
-                if self._log_file:
-                    try:
-                        with open(self._log_file, "a") as f:
-                            # Convert entry to JSON-serializable format
-                            serializable_entry = {
-                                "handler": entry["handler"],
-                                "switcher": entry["switcher"],
-                                "timestamp": entry["timestamp"],
-                                "args": str(entry["args"]),
-                                "kwargs": str(entry["kwargs"]),
-                            }
-                            if "result" in entry:
-                                serializable_entry["result"] = str(entry["result"])
-                            if "exception" in entry:
-                                serializable_entry["exception"] = entry["exception"]
-                            if "elapsed" in entry:
-                                serializable_entry["elapsed"] = entry["elapsed"]
-
-                            f.write(json.dumps(serializable_entry) + "\n")
-                    except Exception:
-                        # Silently ignore file write errors
-                        pass
-
-            return result
-
-        # Preserve __wrapped__ attribute
-        logged_wrapper.__wrapped__ = func
-        return logged_wrapper
-
-    def get_log_history(
-        self,
-        last: int | None = None,
-        first: int | None = None,
-        handler: str | None = None,
-        slowest: int | None = None,
-        fastest: int | None = None,
-        errors: bool | None = None,
-        slower_than: float | None = None,
-    ) -> list[dict]:
-        """
-        Query the log history with various filters.
-
-        Args:
-            last: Return last N entries
-            first: Return first N entries
-            handler: Filter by handler name
-            slowest: Return N slowest executions
-            fastest: Return N fastest executions
-            errors: If True, return only errors; if False, return only successes
-            slower_than: Return entries with elapsed time > threshold (seconds)
-
-        Returns:
-            List of log entries matching the criteria
-        """
-        result = self._log_history.copy()
-
-        # Filter by handler
-        if handler is not None:
-            result = [e for e in result if e.get("handler") == handler]
-
-        # Filter by errors
-        if errors is not None:
-            if errors:
-                result = [e for e in result if "exception" in e]
-            else:
-                result = [e for e in result if "exception" not in e]
-
-        # Filter by elapsed time threshold
-        if slower_than is not None:
-            result = [e for e in result if e.get("elapsed", 0) > slower_than]
-
-        # Sort by elapsed time if needed
-        if slowest is not None:
-            result = sorted(result, key=lambda e: e.get("elapsed", 0), reverse=True)
-            result = result[:slowest]
-        elif fastest is not None:
-            result = sorted(result, key=lambda e: e.get("elapsed", 0))
-            result = result[:fastest]
-        elif last is not None:
-            result = result[-last:]
-        elif first is not None:
-            result = result[:first]
-
-        return result
-
-    def get_log_stats(self) -> dict[str, dict]:
-        """
-        Get statistics for all handlers.
-
-        Returns:
-            Dict mapping handler names to stats dicts with keys:
-            - calls: number of calls
-            - errors: number of errors
-            - avg_time: average execution time
-            - min_time: minimum execution time
-            - max_time: maximum execution time
-            - total_time: total execution time
-        """
-        stats = {}
-
-        for entry in self._log_history:
-            handler = entry.get("handler")
-            if handler not in stats:
-                stats[handler] = {
-                    "calls": 0,
-                    "errors": 0,
-                    "times": [],
-                }
-
-            stats[handler]["calls"] += 1
-
-            if "exception" in entry:
-                stats[handler]["errors"] += 1
-
-            if "elapsed" in entry:
-                stats[handler]["times"].append(entry["elapsed"])
-
-        # Compute time statistics
-        result = {}
-        for handler, data in stats.items():
-            times = data["times"]
-            result[handler] = {
-                "calls": data["calls"],
-                "errors": data["errors"],
-            }
-            if times:
-                result[handler]["avg_time"] = sum(times) / len(times)
-                result[handler]["min_time"] = min(times)
-                result[handler]["max_time"] = max(times)
-                result[handler]["total_time"] = sum(times)
-            else:
-                result[handler]["avg_time"] = 0.0
-                result[handler]["min_time"] = 0.0
-                result[handler]["max_time"] = 0.0
-                result[handler]["total_time"] = 0.0
-
-        return result
-
-    def clear_log_history(self):
-        """Clear all log history."""
-        self._log_history.clear()
-
-    def export_log_history(self, filepath: str):
-        """
-        Export log history to a JSON file.
-
-        Args:
-            filepath: Path to output JSON file
-        """
-        with open(filepath, "w") as f:
-            # Convert entries to JSON-serializable format
-            serializable_entries = []
-            for entry in self._log_history:
-                serializable_entry = {
-                    "handler": entry["handler"],
-                    "switcher": entry["switcher"],
-                    "timestamp": entry["timestamp"],
-                    "args": str(entry["args"]),
-                    "kwargs": str(entry["kwargs"]),
-                }
-                if "result" in entry:
-                    serializable_entry["result"] = str(entry["result"])
-                if "exception" in entry:
-                    serializable_entry["exception"] = entry["exception"]
-                if "elapsed" in entry:
-                    serializable_entry["elapsed"] = entry["elapsed"]
-
-                serializable_entries.append(serializable_entry)
-
-            json.dump(serializable_entries, f, indent=2)
-
-
-# ============================================================================
-# Pre-register built-in plugins in global registry
-# ============================================================================
-
-# Register logging plugin (always available)
-from .plugins import LoggingPlugin  # noqa: E402
-
-Switcher.register_plugin("logging", LoggingPlugin)
-
-# Register pydantic plugin if available (optional dependency)
-try:
-    from .plugins.pydantic import PydanticPlugin  # noqa: E402
-
-    Switcher.register_plugin("pydantic", PydanticPlugin)
-except ImportError:
-    # Pydantic not installed - plugin won't be available
-    pass
+                for name, entry in self._methods.items()
+            },
+            "children": {name: child.describe() for name, child in self._children.items()},
+        }

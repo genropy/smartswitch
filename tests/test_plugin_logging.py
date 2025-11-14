@@ -17,7 +17,7 @@ class TestLoggingPluginBasics:
     def test_plugin_registration(self):
         """Test that plugin can be registered."""
         sw = Switcher(name="test").plug("logging", mode="silent")
-        assert len(sw._plugins) == 1
+        assert len(list(sw.iter_plugins())) == 1
 
     def test_plugin_chaining(self):
         """Test that plug() returns self for chaining."""
@@ -36,7 +36,7 @@ class TestLoggingPluginBasics:
         result = sw("my_handler")(5)
         assert result == 10
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 1
         assert history[0]["handler"] == "my_handler"
         assert history[0]["switcher"] == "test"
@@ -64,7 +64,7 @@ class TestLoggingPluginBasics:
         sw("multiply")(4, 5)
         sw("subtract")(10, 3)
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 3
         assert history[0]["handler"] == "add"
         assert history[1]["handler"] == "multiply"
@@ -81,7 +81,7 @@ class TestLoggingPluginBasics:
         for i in range(5):
             sw("increment")(i)
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 5
         assert all(e["handler"] == "increment" for e in history)
 
@@ -99,7 +99,7 @@ class TestLoggingPluginModes:
 
         sw("handler")(42)
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 1
         assert "elapsed" in history[0]
 
@@ -128,7 +128,7 @@ class TestLoggingPluginModes:
         sw("my_handler")(5)
 
         # Log mode doesn't track history
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 0
 
         # But it does log
@@ -151,7 +151,7 @@ class TestLoggingPluginModes:
         sw("handler")(42)
 
         # Both mode tracks history
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 1
 
     def test_set_log_mode(self):
@@ -163,17 +163,17 @@ class TestLoggingPluginModes:
             return 1
 
         sw("handler")()
-        assert len(sw.logger.history()) == 1
+        assert len(sw.logging.history()) == 1
 
         # Change to log mode (no history)
-        sw.logger.set_mode("log")
+        sw.logging.set_mode("log")
         sw("handler")()
-        assert len(sw.logger.history()) == 1  # No new entry
+        assert len(sw.logging.history()) == 1  # No new entry
 
         # Change back to silent
-        sw.logger.set_mode("silent")
+        sw.logging.set_mode("silent")
         sw("handler")()
-        assert len(sw.logger.history()) == 2
+        assert len(sw.logging.history()) == 2
 
 
 class TestLoggingPluginHistory:
@@ -189,7 +189,7 @@ class TestLoggingPluginHistory:
 
         sw("handler")(1, 2, c=3)
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert history[0]["args"] == (1, 2)
         assert history[0]["kwargs"] == {"c": 3}
 
@@ -204,7 +204,7 @@ class TestLoggingPluginHistory:
         sw("handler")(5)
         sw("handler")(10)
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert history[0]["result"] == 10
         assert history[1]["result"] == 20
 
@@ -220,7 +220,7 @@ class TestLoggingPluginHistory:
         sw("handler")()
         after = time.time()
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert before <= history[0]["timestamp"] <= after
 
     def test_elapsed_time_tracking(self):
@@ -234,7 +234,7 @@ class TestLoggingPluginHistory:
 
         sw("slow_handler")()
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert "elapsed" in history[0]
         assert history[0]["elapsed"] >= 0.01
 
@@ -248,7 +248,7 @@ class TestLoggingPluginHistory:
 
         sw("handler")()
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert "elapsed" not in history[0]
 
 
@@ -268,7 +268,7 @@ class TestLoggingPluginExceptions:
         except ValueError:
             pass
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 1
         assert "exception" in history[0]
         assert history[0]["exception"]["type"] == "ValueError"
@@ -288,7 +288,7 @@ class TestLoggingPluginExceptions:
         except RuntimeError:
             pass
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert "elapsed" in history[0]
         assert history[0]["elapsed"] >= 0.01
         assert "exception" in history[0]
@@ -328,11 +328,11 @@ class TestLoggingPluginQueryFilters:
         sw("fast")()
         sw("slow")()
 
-        fast_history = sw.logger.history(handler="fast")
+        fast_history = sw.logging.history(handler="fast")
         assert len(fast_history) == 2
         assert all(e["handler"] == "fast" for e in fast_history)
 
-        slow_history = sw.logger.history(handler="slow")
+        slow_history = sw.logging.history(handler="slow")
         assert len(slow_history) == 2
         assert all(e["handler"] == "slow" for e in slow_history)
 
@@ -347,7 +347,7 @@ class TestLoggingPluginQueryFilters:
         for i in range(10):
             sw("handler")(i)
 
-        history = sw.logger.history(last=3)
+        history = sw.logging.history(last=3)
         assert len(history) == 3
         assert history[0]["args"] == (7,)
         assert history[1]["args"] == (8,)
@@ -364,7 +364,7 @@ class TestLoggingPluginQueryFilters:
         for i in range(10):
             sw("handler")(i)
 
-        history = sw.logger.history(first=3)
+        history = sw.logging.history(first=3)
         assert len(history) == 3
         assert history[0]["args"] == (0,)
         assert history[1]["args"] == (1,)
@@ -391,7 +391,7 @@ class TestLoggingPluginQueryFilters:
         except ValueError:
             pass
 
-        errors = sw.logger.history(errors=True)
+        errors = sw.logging.history(errors=True)
         assert len(errors) == 2
         assert all("exception" in e for e in errors)
 
@@ -412,7 +412,7 @@ class TestLoggingPluginQueryFilters:
             pass
         sw("handler")(2)
 
-        successes = sw.logger.history(errors=False)
+        successes = sw.logging.history(errors=False)
         assert len(successes) == 2
         assert all("exception" not in e for e in successes)
 
@@ -429,7 +429,7 @@ class TestLoggingPluginQueryFilters:
         sw("handler")(0.03)
         sw("handler")(0.02)
 
-        slowest = sw.logger.history(slowest=2)
+        slowest = sw.logging.history(slowest=2)
         assert len(slowest) == 2
         # Slowest first (descending order)
         assert slowest[0]["elapsed"] > slowest[1]["elapsed"]
@@ -449,7 +449,7 @@ class TestLoggingPluginQueryFilters:
         sw("handler")(0.01)
         sw("handler")(0.02)
 
-        fastest = sw.logger.history(fastest=2)
+        fastest = sw.logging.history(fastest=2)
         assert len(fastest) == 2
         # Fastest first (ascending order)
         assert fastest[0]["elapsed"] < fastest[1]["elapsed"]
@@ -471,12 +471,12 @@ class TestLoggingPluginQueryFilters:
         sw("handler")(0.04)
 
         # Get all entries and check they are in order by duration
-        all_history = sw.logger.history()
+        all_history = sw.logging.history()
         assert len(all_history) == 4
         # Find the shortest duration (should be first call with 0.01)
         shortest = min(e["elapsed"] for e in all_history)
         # Get entries slower than the shortest
-        slow_calls = sw.logger.history(slower_than=shortest)
+        slow_calls = sw.logging.history(slower_than=shortest)
         assert len(slow_calls) == 3  # The 0.05, 0.02, and 0.04 calls
         assert all(e["elapsed"] > shortest for e in slow_calls)
 
@@ -494,10 +494,10 @@ class TestLoggingPluginHistoryManagement:
 
         sw("handler")()
         sw("handler")()
-        assert len(sw.logger.history()) == 2
+        assert len(sw.logging.history()) == 2
 
-        sw.logger.clear()
-        assert len(sw.logger.history()) == 0
+        sw.logging.clear()
+        assert len(sw.logging.history()) == 0
 
     def test_max_history_limit(self):
         """Test that history is limited to max_history."""
@@ -510,7 +510,7 @@ class TestLoggingPluginHistoryManagement:
         for i in range(10):
             sw("handler")(i)
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 5
         # Should keep the last 5
         assert history[0]["args"] == (5,)
@@ -529,7 +529,7 @@ class TestLoggingPluginHistoryManagement:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             filepath = Path(tmpdir) / "history.json"
-            sw.logger.export(str(filepath))
+            sw.logging.export(str(filepath))
 
             assert filepath.exists()
 
@@ -550,7 +550,7 @@ class TestLoggingPluginFileLogging:
             logfile = Path(tmpdir) / "calls.jsonl"
 
             sw = Switcher().plug("logging", mode="silent")
-            sw.logger.set_file(str(logfile))
+            sw.logging.set_file(str(logfile))
 
             @sw
             def handler(x):
@@ -574,7 +574,7 @@ class TestLoggingPluginFileLogging:
             logfile = Path(tmpdir) / "calls.jsonl"
 
             sw = Switcher().plug("logging", mode="silent")
-            sw.logger.set_file(str(logfile))
+            sw.logging.set_file(str(logfile))
 
             @sw
             def handler():
@@ -584,7 +584,7 @@ class TestLoggingPluginFileLogging:
             assert logfile.exists()
 
             # Disable file logging
-            sw.logger.set_file(None)
+            sw.logging.set_file(None)
             sw("handler")()
 
             # Should only have 1 entry
@@ -616,7 +616,7 @@ class TestLoggingPluginEdgeCases:
 
         sw("handler")()
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert history[0]["args"] == ()
         assert history[0]["kwargs"] == {}
 
@@ -630,12 +630,12 @@ class TestLoggingPluginEdgeCases:
 
         sw("handler")(a=10, b=20)
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert history[0]["args"] == ()
         assert history[0]["kwargs"] == {"a": 10, "b": 20}
 
     def test_wrapped_attribute(self):
-        """Test that __wrapped__ attribute is preserved."""
+        """Test that function metadata is preserved."""
         sw = Switcher().plug("logging", mode="silent")
 
         @sw
@@ -643,9 +643,11 @@ class TestLoggingPluginEdgeCases:
             """Original docstring."""
             return 42
 
-        wrapped = sw._handlers["original_handler"]
-        assert hasattr(wrapped, "__wrapped__")
-        assert wrapped.__wrapped__.__doc__ == "Original docstring."
+        entry = sw._methods["original_handler"]
+        wrapped = entry.func
+        # LoggingPlugin preserves metadata
+        assert wrapped.__name__ == "original_handler"
+        assert wrapped.__doc__ == "Original docstring."
 
     def test_multiple_plugins_same_handler(self):
         """Test that plugins can be composed (future-proofing)."""
@@ -660,7 +662,7 @@ class TestLoggingPluginEdgeCases:
         result = sw("handler")(42)
         assert result == 42
 
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 1
 
 

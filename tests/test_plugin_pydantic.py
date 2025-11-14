@@ -22,7 +22,7 @@ class TestPydanticPluginBasics:
     def test_plugin_registration(self):
         """Test that pydantic plugin can be registered."""
         sw = Switcher(name="test").plug("pydantic")
-        assert len(sw._plugins) == 1
+        assert len(list(sw.iter_plugins())) == 1
 
     def test_plugin_chaining(self):
         """Test that plug() returns self for chaining."""
@@ -276,7 +276,7 @@ class TestPydanticPluginStacking:
         assert result == 7
 
         # Check logging captured the call
-        history = sw.logger.history()
+        history = sw.logging.history()
         assert len(history) == 1
         assert history[0]["result"] == 7
 
@@ -292,12 +292,12 @@ class TestPydanticPluginStacking:
         with pytest.raises(ValidationError):
             sw("strict_func")("invalid")
 
-        # Note: ValidationError is raised by pydantic plugin before logging plugin
-        # can capture the call, so history should be empty. This is expected behavior
-        # because plugin order matters: logging wraps the function, then pydantic wraps
-        # that wrapper. When pydantic raises, the call never reaches the logging wrapper.
-        history = sw.logger.history()
-        assert len(history) == 0  # No call logged because validation failed
+        # Note: LoggingPlugin captures exceptions including ValidationError
+        # This is useful for debugging - failed calls are logged with exception info
+        history = sw.logging.history()
+        assert len(history) == 1  # Call is logged even when validation fails
+        assert "exception" in history[0]
+        assert history[0]["exception"]["type"] == "ValidationError"
 
 
 class TestPydanticPluginConfigure:
@@ -428,15 +428,15 @@ class TestPydanticPluginConfigure:
             return x
 
         # Initially enabled
-        assert sw.pydantic.is_enabled("my_handler") is True
+        assert sw.pydantic.is_enabled_for("my_handler") is True
 
         # Disable
         sw.pydantic.configure("my_handler", enabled=False)
-        assert sw.pydantic.is_enabled("my_handler") is False
+        assert sw.pydantic.is_enabled_for("my_handler") is False
 
         # Re-enable
         sw.pydantic.configure("my_handler", enabled=True)
-        assert sw.pydantic.is_enabled("my_handler") is True
+        assert sw.pydantic.is_enabled_for("my_handler") is True
 
     def test_plugin_name_property(self):
         """Test that plugin_name property generates correct name."""
@@ -444,8 +444,7 @@ class TestPydanticPluginConfigure:
 
         # PydanticPlugin should register as 'pydantic'
         assert hasattr(sw, "pydantic")
-        assert sw.pydantic.plugin_name == "pydantic"
+        assert sw.pydantic.name == "pydantic"
 
-        # Verify it's accessible via the registry
-        assert "pydantic" in sw._plugin_registry
-        assert sw._plugin_registry["pydantic"] is sw.pydantic
+        # Verify it's accessible via __getattr__
+        assert sw.pydantic is sw.plugin("pydantic")

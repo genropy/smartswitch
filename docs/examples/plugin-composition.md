@@ -34,24 +34,24 @@ api("get_user")(123)
 api("get_posts")(123)
 
 # Query history
-history = api.logger.history()
+history = api.logging.history()
 print(f"Total calls: {len(history)}")
 # → Total calls: 2
 
 # Get slowest calls
-slow_calls = api.logger.history(slowest=5)
+slow_calls = api.logging.history(slowest=5)
 for call in slow_calls:
     print(f"{call['handler']}: {call['elapsed']:.3f}s")
 # → get_posts: 0.042s
 # → get_user: 0.015s
 
 # Filter by handler
-user_calls = api.logger.history(handler="get_user")
+user_calls = api.logging.history(handler="get_user")
 print(f"User calls: {len(user_calls)}")
 # → User calls: 1
 
 # Export to JSON for analysis
-api.logger.export("api_calls.json")
+api.logging.export("api_calls.json")
 ```
 
 ## External Plugin: Async Support
@@ -158,12 +158,12 @@ print(f"Remote user: {user_remote['name']}")
 print(f"Posts: {len(posts)} posts")
 
 # Logging plugin tracked ALL calls (sync and async)
-history = api.logger.history()
+history = api.logging.history()
 print(f"\nTotal API calls: {len(history)}")
 # → Total API calls: 3
 
 # Find slowest operations (likely the remote calls)
-slow_calls = api.logger.history(slowest=3)
+slow_calls = api.logging.history(slowest=3)
 for call in slow_calls:
     handler = call['handler']
     elapsed = call['elapsed']
@@ -183,7 +183,7 @@ print(f"\nRemote API calls: {len(remote_calls)}")
 # → Remote API calls: 2
 
 # Check for errors
-errors = api.logger.history(errors=True)
+errors = api.logging.history(errors=True)
 if errors:
     print(f"\nErrors: {len(errors)}")
     for error in errors:
@@ -236,7 +236,7 @@ async def get_user_profile(user_id):
         }
 
 # Later: analyze performance
-slow_endpoints = gateway.logger.history(slower_than=0.5)
+slow_endpoints = gateway.logging.history(slower_than=0.5)
 print(f"Slow endpoints (>500ms): {len(slow_endpoints)}")
 ```
 
@@ -269,10 +269,10 @@ jobs("send_email")("user@example.com", "Welcome", "Hello!")
 jobs("process_payment")(99.99, "USD")
 
 # Export job history for monitoring
-jobs.logger.export("job_history.json")
+jobs.logging.export("job_history.json")
 
 # Alert on failures
-errors = jobs.logger.history(errors=True, last=100)
+errors = jobs.logging.history(errors=True, last=100)
 if len(errors) > 10:
     alert_ops_team(f"{len(errors)} job failures in last 100 runs")
 ```
@@ -299,7 +299,7 @@ tests("test_api_endpoint")("/posts", 200)
 tests("test_api_endpoint")("/invalid", 404)
 
 # Analyze test results
-history = tests.logger.history()
+history = tests.logging.history()
 passed = [h for h in history if 'exception' not in h]
 failed = [h for h in history if 'exception' in h]
 

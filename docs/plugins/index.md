@@ -28,7 +28,7 @@ def my_handler(x: int) -> int:
 result = sw("my_handler")(5)
 
 # Query history
-history = sw.logger.history()
+history = sw.logging.history()
 print(history[0])  # {'handler': 'my_handler', 'result': 10, ...}
 ```
 
@@ -114,20 +114,19 @@ To create your own plugin, implement the plugin protocol:
 
 ```python
 from smartswitch import BasePlugin
-from functools import wraps
 
 class MyPlugin(BasePlugin):
-    def on_decorate(self, func, switcher):
+    def on_decorate(self, switch, func, entry):
         """Optional: Setup phase during decoration."""
         # Prepare resources, store metadata
-        func._plugin_meta["my_plugin"] = {"prepared": True}
+        entry.metadata.setdefault("my_plugin", {})
+        entry.metadata["my_plugin"]["prepared"] = True
 
-    def _wrap_handler(self, func, switcher):
+    def wrap_handler(self, switch, entry, call_next):
         """Required: Create wrapper function."""
-        @wraps(func)
         def wrapper(*args, **kwargs):
             # Pre-processing
-            result = func(*args, **kwargs)
+            result = call_next(*args, **kwargs)
             # Post-processing
             return result
         return wrapper
