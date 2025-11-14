@@ -60,8 +60,8 @@ Let's dissect the LoggingPlugin in extreme detail to understand every aspect of 
 
 ```python
 class LoggingPlugin:
-    # Plugin name for attribute access: sw.logger.history()
-    plugin_name = "logger"
+    # Plugin name for attribute access: sw.logging.history()
+    plugin_name = "logging"
 
     def __init__(self, mode='silent', time=True, max_history=10000, logger=None):
         """
@@ -538,8 +538,8 @@ Result: 5
 The plugin name becomes the attribute for accessing it:
 
 ```python
-# Plugin with plugin_name = "logger"
-sw.logger.history()      # ✅ Clear: accessing logging functionality
+# Plugin with plugin_name = "logging"
+sw.logging.history()      # ✅ Clear: accessing logging functionality
 
 # Plugin with plugin_name = "smartswitch-logger"
 sw.smartswitch-logger.history()  # ❌ Redundant: we know it's SmartSwitch!

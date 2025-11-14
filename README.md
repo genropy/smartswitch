@@ -334,9 +334,9 @@ def my_handler(x):
 sw('my_handler')(5)
 
 # Access plugin via attribute
-sw.logger.history()           # Get call history
-sw.logger.history(slowest=5)  # 5 slowest calls
-sw.logger.clear()             # Clear history
+sw.logging.history()           # Get call history
+sw.logging.history(slowest=5)  # 5 slowest calls
+sw.logging.clear()             # Clear history
 ```
 
 **External plugins:**

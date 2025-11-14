@@ -11,55 +11,57 @@ graph TB
     subgraph UserCode[User Code]
         U1[Decorator Usage]
         U2[Handler Dispatch]
-        U3[Logging/History Queries]
+        U3[Plugin Access]
     end
 
-    subgraph SwitcherCore[Switcher Core]
+    subgraph SwitcherCore[Switcher Core V2]
         SW[Switcher]
-        HD[_handlers Dict]
-        RL[_rules List]
-        PC[_param_names_cache]
-        CT[_compile_type_checks]
-        MT[_make_type_checker]
+        ME[_methods Dict]
+        PL[_local_plugins List]
+        IP[_inherited_plugins]
+        RD[_runtime_data WeakKeyDict]
+        SO[SwitcherOwner]
     end
 
-    subgraph LoggingSystem[Logging System v0.4.0]
-        LM[_log_mode]
-        LH[_log_handlers]
-        LF[_log_history]
-        LG[_logger]
-        WL[_wrap_with_logging]
+    subgraph PluginSystem[Plugin System v0.6.0]
+        BP[BasePlugin]
+        LP[LoggingPlugin]
+        PP[PydanticPlugin]
+        CP[Custom Plugins]
     end
 
-    subgraph DescriptorSupport[Descriptor Support]
-        BS[BoundSwitcher]
+    subgraph MethodEntry[MethodEntry]
+        EN[entry.name]
+        EF[entry.func]
+        EM[entry.metadata]
+        EP[entry.plugins]
     end
 
     U1 --> SW
     U2 --> SW
     U3 --> SW
-    SW --> HD
-    SW --> RL
-    SW --> PC
-    SW --> CT
-    SW --> MT
-    SW --> BS
-    SW --> LM
-    SW --> LH
-    SW --> LF
-    SW --> LG
-    SW --> WL
+    SW --> ME
+    SW --> PL
+    SW --> IP
+    SW --> RD
+    SW --> SO
+    SW --> MethodEntry
+    PL --> BP
+    PL --> LP
+    PL --> PP
+    PL --> CP
 
     style SW fill:#4051b5,stroke:#333,stroke-width:2px,color:#fff
-    style BS fill:#7986cb,stroke:#333,stroke-width:2px,color:#fff
-    style LM fill:#66bb6a,stroke:#333,stroke-width:2px,color:#fff
+    style MethodEntry fill:#7986cb,stroke:#333,stroke-width:2px,color:#fff
+    style BP fill:#66bb6a,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-SmartSwitch consists of two main classes and a logging subsystem:
+SmartSwitch V2 consists of core components and plugin system:
 
-- **Switcher**: The core engine handling registration and dispatch
-- **BoundSwitcher**: Descriptor helper for automatic method binding in classes
-- **Logging System** (v0.4.0): Call history tracking, performance analysis, and error monitoring
+- **Switcher**: The core engine handling registration, dispatch, and plugin management
+- **MethodEntry**: Dataclass containing method metadata and plugin information
+- **SwitcherOwner**: Base class for automatic Switcher binding via `__init_subclass__`
+- **Plugin System** (v0.6.0): Extensible middleware architecture with `on_decorate` and `wrap_handler` hooks
 
 ---
 
@@ -69,30 +71,37 @@ SmartSwitch consists of two main classes and a logging subsystem:
 sequenceDiagram
     participant User
     participant Switcher
-    participant Decorator
+    participant Plugin1
+    participant Plugin2
+    participant MethodEntry
 
-    User->>Switcher: @sw(typerule={'x': int})
-    Switcher->>Switcher: Detect typerule/valrule
-    Switcher->>User: Return decorator function
+    User->>Switcher: @sw decorator
+    Switcher->>MethodEntry: Create MethodEntry(name, func, metadata={})
 
-    User->>Decorator: Apply decorator to handle_int(x)
-    Decorator->>Decorator: inspect.signature(handle_int)
-    Decorator->>Decorator: Cache param_names
-    Decorator->>Decorator: _compile_type_checks()
-    Decorator->>Decorator: Create matcher closure
-    Decorator->>Switcher: Append to _rules
-    Decorator->>Switcher: Store in _handlers
-    Decorator->>User: Return original function
+    Note over Switcher,Plugin1: Phase 1: on_decorate hooks
+    Switcher->>Plugin1: on_decorate(switch, func, entry)
+    Plugin1->>MethodEntry: Store metadata
+    Switcher->>Plugin2: on_decorate(switch, func, entry)
+    Plugin2->>MethodEntry: Read/write metadata
 
-    Note over Decorator,Switcher: Expensive operations done once at registration
+    Note over Switcher,Plugin1: Phase 2: wrap_handler hooks
+    Switcher->>Plugin1: wrap_handler(switch, entry, call_next)
+    Plugin1->>Switcher: Return wrapper1
+    Switcher->>Plugin2: wrap_handler(switch, entry, wrapper1)
+    Plugin2->>Switcher: Return wrapper2
+
+    Switcher->>Switcher: Store in _methods[name] = entry
+    Switcher->>User: Return original function
+
+    Note over Switcher,MethodEntry: Plugins wrap in reverse order during calls
 ```
 
-**Key Points**:
+**Key Points (V2)**:
 
-1. **Signature Inspection**: Done once and cached - no repeated introspection
-2. **Type Checker Compilation**: Type checks pre-compiled into fast lambda functions
-3. **Matcher Closure**: Captures all context needed for dispatch
-4. **Registry Storage**: Handlers stored by name for direct lookup
+1. **MethodEntry Creation**: Each handler gets a MethodEntry with name, func, metadata
+2. **Plugin Hooks**: Two-phase system - on_decorate for setup, wrap_handler for wrapping
+3. **Metadata Sharing**: Plugins store/read data in entry.metadata by namespace
+4. **Middleware Chain**: Plugins wrap handlers in order, execute in reverse during calls
 
 ---
 
