@@ -1,10 +1,8 @@
 import asyncio
 import unittest
 
-from smartasync import smartasync
-
 from smartswitch.core import Switcher, BasePlugin
-from smartswitch.plugins import DbOpPlugin, SmartAsyncPlugin
+from smartswitch.plugins import DbOpPlugin
 
 
 class CountPlugin(BasePlugin):
@@ -267,42 +265,6 @@ class TestSwitcher(unittest.TestCase):
             Owner.gate("do_stable")(owner, 1)
         Owner.gate.plugin("GatePlugin").configure("do_stable", enabled=False)
         self.assertEqual(Owner.gate("do_stable")(owner, 2), "stable:2")
-
-    def test_smartasync_plugin_wraps_async_handler(self):
-        class Owner:
-            api = Switcher("api")
-            api.plug(SmartAsyncPlugin)
-
-            @api
-            async def do_async(self, value):
-                await asyncio.sleep(0)
-                return f"async:{value}"
-
-        obj = Owner()
-        handler = Owner.api("do_async")
-        self.assertEqual(handler(obj, "sync"), "async:sync")
-
-        async def runner():
-            return await handler(obj, "async")
-
-        self.assertEqual(asyncio.run(runner()), "async:async")
-
-    def test_smartasync_plugin_respects_pre_wrapped_functions(self):
-        class Owner:
-            api = Switcher("api")
-            api.plug(SmartAsyncPlugin)
-
-            @api
-            @smartasync
-            async def do_pre_wrapped(self):
-                await asyncio.sleep(0)
-                return "wrapped"
-
-        obj = Owner()
-        handler = Owner.api("do_pre_wrapped")
-        self.assertEqual(handler(obj), "wrapped")
-        entry = Owner.api._methods["do_pre_wrapped"]
-        self.assertFalse(entry.metadata["smartasync"]["wrapped"])
 
     def test_dbop_plugin_injects_cursor_and_commits(self):
         class Table:

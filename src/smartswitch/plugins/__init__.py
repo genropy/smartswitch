@@ -2,43 +2,7 @@
 
 from __future__ import annotations
 
-import inspect
-from typing import Optional
-
 from ..core import BasePlugin, MethodEntry, Switcher
-
-
-class SmartAsyncPlugin(BasePlugin):
-    """Wrap async handlers with smartasync so they work in sync contexts."""
-
-    def __init__(self, name: Optional[str] = None, *, marker_attr: str = "_smartasync_reset_cache"):
-        super().__init__(name=name)
-        self.marker_attr = marker_attr
-
-    def _should_wrap(self, func) -> bool:
-        if not inspect.iscoroutinefunction(func):
-            return False
-        return not hasattr(func, self.marker_attr)
-
-    def on_decore(self, switch, func, entry: MethodEntry) -> None:  # type: ignore[override]
-        info = entry.metadata.setdefault("smartasync", {})
-        if not self._should_wrap(func):
-            info.setdefault("wrapped", False)
-            return
-        try:
-            from smartasync import smartasync
-        except ImportError as exc:  # pragma: no cover - defensive guard
-            raise RuntimeError("smartasync package is required for SmartAsyncPlugin") from exc
-        wrapped = smartasync(func)
-        info["wrapped"] = True
-        entry.func = wrapped
-
-    def wrap_handler(self, switch, entry: MethodEntry, call_next):  # type: ignore[override]
-        return call_next
-
-
-# Register plugin for convenience so users can do .plug("smartasync")
-Switcher.register_plugin("smartasync", SmartAsyncPlugin)
 
 
 class DbOpPlugin(BasePlugin):
@@ -81,7 +45,7 @@ from .logging import LoggingPlugin  # noqa: E402
 try:
     from .pydantic import PydanticPlugin  # noqa: E402
 
-    __all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin", "PydanticPlugin"]
+    __all__ = ["DbOpPlugin", "LoggingPlugin", "PydanticPlugin"]
 except ImportError:
     # Pydantic not installed - plugin not available
-    __all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin"]
+    __all__ = ["DbOpPlugin", "LoggingPlugin"]

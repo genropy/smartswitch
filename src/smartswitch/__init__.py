@@ -4,12 +4,11 @@ High-level entrypoints:
 - Switcher
 - BasePlugin
 - MethodEntry
-- SmartAsyncPlugin
 - DbOpPlugin
 """
 
 from .core import BasePlugin, MethodEntry, Switcher
-from .plugins import DbOpPlugin, LoggingPlugin, SmartAsyncPlugin
+from .plugins import DbOpPlugin, LoggingPlugin
 
 # PydanticPlugin is conditionally imported in plugins/__init__.py
 # Only available if pydantic is installed
@@ -20,7 +19,6 @@ try:
         "Switcher",
         "BasePlugin",
         "MethodEntry",
-        "SmartAsyncPlugin",
         "DbOpPlugin",
         "LoggingPlugin",
         "PydanticPlugin",
@@ -30,7 +28,6 @@ except ImportError:
         "Switcher",
         "BasePlugin",
         "MethodEntry",
-        "SmartAsyncPlugin",
         "DbOpPlugin",
         "LoggingPlugin",
     ]
