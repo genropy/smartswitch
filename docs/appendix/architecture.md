@@ -14,7 +14,7 @@ graph TB
         U3[Plugin Access]
     end
 
-    subgraph SwitcherCore[Switcher Core V2]
+    subgraph SwitcherCore[Switcher Core]
         SW[Switcher]
         ME[_methods Dict]
         PL[_local_plugins List]
@@ -22,7 +22,7 @@ graph TB
         RD[_runtime_data WeakKeyDict]
     end
 
-    subgraph PluginSystem[Plugin System v0.6.0]
+    subgraph PluginSystem[Plugin System]
         BP[BasePlugin]
         LP[LoggingPlugin]
         PP[PydanticPlugin]
@@ -54,11 +54,11 @@ graph TB
     style BP fill:#66bb6a,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-SmartSwitch V2 consists of core components and plugin system:
+SmartSwitch consists of core components and plugin system:
 
 - **Switcher**: The core engine handling registration, dispatch, and plugin management
 - **MethodEntry**: Dataclass containing method metadata and plugin information
-- **Plugin System** (v0.6.0): Extensible middleware architecture with `on_decorate` and `wrap_handler` hooks
+- **Plugin System**: Extensible middleware architecture with `on_decorate` and `wrap_handler` hooks
 
 ---
 
@@ -93,7 +93,7 @@ sequenceDiagram
     Note over Switcher,MethodEntry: Plugins wrap in reverse order during calls
 ```
 
-**Key Points (V2)**:
+**Key Points**:
 
 1. **MethodEntry Creation**: Each handler gets a MethodEntry with name, func, metadata
 2. **Plugin Hooks**: Two-phase system - on_decorate for setup, wrap_handler for wrapping

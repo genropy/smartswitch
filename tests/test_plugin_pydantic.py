@@ -292,7 +292,7 @@ class TestPydanticPluginStacking:
         with pytest.raises(ValidationError):
             sw("strict_func")("invalid")
 
-        # Note: In V2, LoggingPlugin captures exceptions including ValidationError
+        # Note: LoggingPlugin captures exceptions including ValidationError
         # This is useful for debugging - failed calls are logged with exception info
         history = sw.logging.history()
         assert len(history) == 1  # Call is logged even when validation fails

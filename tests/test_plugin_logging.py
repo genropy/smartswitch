@@ -645,7 +645,7 @@ class TestLoggingPluginEdgeCases:
 
         entry = sw._methods["original_handler"]
         wrapped = entry.func
-        # V2: LoggingPlugin doesn't use functools.wraps, but preserves metadata
+        # LoggingPlugin preserves metadata
         assert wrapped.__name__ == "original_handler"
         assert wrapped.__doc__ == "Original docstring."
 
