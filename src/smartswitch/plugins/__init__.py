@@ -40,15 +40,14 @@ class SmartAsyncPlugin(BasePlugin):
 # Register plugin for convenience so users can do .plug("smartasync")
 Switcher.register_plugin("smartasync", SmartAsyncPlugin)
 
+
 class DbOpPlugin(BasePlugin):
     """Database operation plugin that injects cursors and manages transactions."""
 
     def wrap_handler(self, switch, entry: MethodEntry, call_next):  # type: ignore[override]
         def wrapper(*args, **kwargs):
             if not args:
-                raise TypeError(
-                    f"{entry.name}() missing required positional argument 'self'"
-                )
+                raise TypeError(f"{entry.name}() missing required positional argument 'self'")
             instance = args[0]
             if not hasattr(instance, "db"):
                 raise AttributeError(
@@ -81,6 +80,7 @@ from .logging import LoggingPlugin  # noqa: E402
 # Import pydantic plugin only if pydantic is installed
 try:
     from .pydantic import PydanticPlugin  # noqa: E402
+
     __all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin", "PydanticPlugin"]
 except ImportError:
     # Pydantic not installed - plugin not available

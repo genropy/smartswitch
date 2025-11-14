@@ -15,6 +15,7 @@ from .plugins import DbOpPlugin, LoggingPlugin, SmartAsyncPlugin
 # Only available if pydantic is installed
 try:
     from .plugins import PydanticPlugin
+
     __all__ = [
         "Switcher",
         "BasePlugin",

@@ -31,9 +31,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Ty
 _activation_ctx: contextvars.ContextVar = contextvars.ContextVar(
     "smartswitch_activation", default=None
 )
-_runtime_ctx: contextvars.ContextVar = contextvars.ContextVar(
-    "smartswitch_runtime", default=None
-)
+_runtime_ctx: contextvars.ContextVar = contextvars.ContextVar("smartswitch_runtime", default=None)
 
 
 def _get_activation_map() -> Dict[Any, bool]:
@@ -58,14 +56,15 @@ def _get_runtime_map() -> Dict[Any, Dict[str, Any]]:
 # DATA STRUCTURES
 # ============================================================
 
+
 @dataclass
 class MethodEntry:
     """Metadata and runtime info for a decorated method."""
 
-    name: str                       # logical registered name
-    func: Callable                  # original function
-    switch: "Switcher"         # owning switch
-    plugins: List[str]              # ordered plugin names
+    name: str  # logical registered name
+    func: Callable  # original function
+    switch: "Switcher"  # owning switch
+    plugins: List[str]  # ordered plugin names
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -90,6 +89,7 @@ class _PluginSpec:
 # ============================================================
 # PLUGIN BASE
 # ============================================================
+
 
 class BasePlugin:
     """
@@ -171,6 +171,7 @@ class BasePlugin:
 # SWITCH CALL PROXY
 # ============================================================
 
+
 class _SwitchCall:
     """
     A proxy object returned by Switcher when called with a string.
@@ -196,6 +197,7 @@ class _SwitchCall:
 # ============================================================
 # SMART SWITCH
 # ============================================================
+
 
 class Switcher:
     """
@@ -256,9 +258,7 @@ class Switcher:
         self._local_plugin_specs: List[_PluginSpec] = []
         self._inherited_plugins: List[BasePlugin] = []
         self._inherited_plugin_specs: List[_PluginSpec] = []
-        self._inherit_plugins: bool = (
-            True if inherit_plugins is None else bool(inherit_plugins)
-        )
+        self._inherit_plugins: bool = True if inherit_plugins is None else bool(inherit_plugins)
         self._using_parent_plugins: bool = False
         self._children: Dict[str, "Switcher"] = {}
         self._methods: Dict[str, MethodEntry] = {}
@@ -482,7 +482,7 @@ class Switcher:
         if alias:
             name = alias
         elif self.prefix and func_name.startswith(self.prefix):
-            name = func_name[len(self.prefix):]
+            name = func_name[len(self.prefix) :]
         else:
             name = func_name
         if name in self._methods:
