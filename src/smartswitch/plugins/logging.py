@@ -1,7 +1,7 @@
 """
-SmartSwitch Logging Plugin.
+Switcher Logging Plugin.
 
-Provides call history tracking and performance monitoring for SmartSwitch handlers.
+Provides call history tracking and performance monitoring for Switcher handlers.
 """
 
 import json
@@ -10,14 +10,14 @@ import time
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
-    from ..core import SmartSwitch, MethodEntry
+    from ..core import Switcher, MethodEntry
 
-from ..core import SmartPlugin
+from ..core import BasePlugin
 
 
-class LoggingPlugin(SmartPlugin):
+class LoggingPlugin(BasePlugin):
     """
-    SmartSwitch plugin for call history and performance tracking.
+    Switcher plugin for call history and performance tracking.
 
     Tracks all handler calls with optional timing information. Supports
     three modes: silent (history only), log (Python logging), or both.
@@ -38,7 +38,7 @@ class LoggingPlugin(SmartPlugin):
     Examples:
         Basic usage with silent mode (history only):
 
-        >>> sw = SmartSwitch().plug('logging', mode='silent', time=True)
+        >>> sw = Switcher().plug('logging', mode='silent', time=True)
         >>> @sw
         ... def my_handler(x):
         ...     return x * 2
@@ -50,7 +50,7 @@ class LoggingPlugin(SmartPlugin):
 
         With Python logging enabled:
 
-        >>> sw = SmartSwitch().plug('logging', mode='log', time=True)
+        >>> sw = Switcher().plug('logging', mode='log', time=True)
         >>> @sw
         ... def process_data(data):
         ...     return len(data)
@@ -59,7 +59,7 @@ class LoggingPlugin(SmartPlugin):
 
         Query history by handler:
 
-        >>> sw = SmartSwitch().plug('logging', mode='silent')
+        >>> sw = Switcher().plug('logging', mode='silent')
         >>> @sw
         ... def fast(): time.sleep(0.01)
         >>> @sw
@@ -119,7 +119,7 @@ class LoggingPlugin(SmartPlugin):
 
     def on_decore(
         self,
-        switch: "SmartSwitch",
+        switch: "Switcher",
         func: Callable,
         entry: "MethodEntry",
     ) -> None:
@@ -130,7 +130,7 @@ class LoggingPlugin(SmartPlugin):
         all work is done in wrap_handler() at call time.
 
         Args:
-            switch: The SmartSwitch instance
+            switch: The Switcher instance
             func: The handler function being decorated
             entry: The method entry with metadata
         """
@@ -139,18 +139,18 @@ class LoggingPlugin(SmartPlugin):
 
     def wrap_handler(
         self,
-        switch: "SmartSwitch",
+        switch: "Switcher",
         entry: "MethodEntry",
         call_next: Callable,
     ) -> Callable:
         """
         Wrap a handler function with logging/history tracking.
 
-        This method is called by SmartSwitch when building the wrapper chain.
+        This method is called by Switcher when building the wrapper chain.
         It wraps the call_next function to track calls, timing, and errors.
 
         Args:
-            switch: The SmartSwitch instance
+            switch: The Switcher instance
             entry: The method entry with metadata
             call_next: The next layer in the wrapper chain
 
@@ -379,5 +379,5 @@ class LoggingPlugin(SmartPlugin):
 
 
 # Register plugin globally
-from ..core import SmartSwitch
-SmartSwitch.register_plugin("logging", LoggingPlugin)
+from ..core import Switcher
+Switcher.register_plugin("logging", LoggingPlugin)

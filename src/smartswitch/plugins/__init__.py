@@ -1,14 +1,14 @@
-"""Collection of optional SmartSwitch plugins."""
+"""Collection of optional Switcher plugins."""
 
 from __future__ import annotations
 
 import inspect
 from typing import Optional
 
-from ..core import MethodEntry, SmartPlugin, SmartSwitch
+from ..core import MethodEntry, BasePlugin, Switcher
 
 
-class SmartAsyncPlugin(SmartPlugin):
+class SmartAsyncPlugin(BasePlugin):
     """Wrap async handlers with smartasync so they work in sync contexts."""
 
     def __init__(self, name: Optional[str] = None, *, marker_attr: str = "_smartasync_reset_cache"):
@@ -38,9 +38,9 @@ class SmartAsyncPlugin(SmartPlugin):
 
 
 # Register plugin for convenience so users can do .plug("smartasync")
-SmartSwitch.register_plugin("smartasync", SmartAsyncPlugin)
+Switcher.register_plugin("smartasync", SmartAsyncPlugin)
 
-class DbOpPlugin(SmartPlugin):
+class DbOpPlugin(BasePlugin):
     """Database operation plugin that injects cursors and manages transactions."""
 
     def wrap_handler(self, switch, entry: MethodEntry, call_next):  # type: ignore[override]
@@ -73,7 +73,7 @@ class DbOpPlugin(SmartPlugin):
         return wrapper
 
 
-SmartSwitch.register_plugin("dbop", DbOpPlugin)
+Switcher.register_plugin("dbop", DbOpPlugin)
 
 # Import logging and pydantic plugins
 from .logging import LoggingPlugin

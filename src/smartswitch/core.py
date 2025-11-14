@@ -1,17 +1,17 @@
 """
-SmartSwitch - core implementation
+Switcher - core implementation
 
-This module implements the first working iteration of SmartSwitch,
+This module implements the first working iteration of Switcher,
 according to the high-level design we discussed.
 
 Key features implemented here:
-- Per-class SmartSwitch instances.
+- Per-class Switcher instances.
 - Optional prefix-based name normalization.
 - Explicit alias for registration via @switch("alias").
 - Name collision detection at switch level.
 - Parent/child switch hierarchy (with children registered by name).
 - Local registry for methods (by logical name).
-- Plugins (SmartPlugin) with on_decore + wrap_handler hooks.
+- Plugins (BasePlugin) with on_decore + wrap_handler hooks.
 - Runtime enable/disable of plugins per instance/method/plugin/thread.
 - Per-instance, per-method, per-plugin, per-thread runtime data.
 - Named dispatch via switch("name")(...).
@@ -65,7 +65,7 @@ class MethodEntry:
 
     name: str                       # logical registered name
     func: Callable                  # original function
-    switch: "SmartSwitch"         # owning switch
+    switch: "Switcher"         # owning switch
     plugins: List[str]              # ordered plugin names
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -74,14 +74,14 @@ class MethodEntry:
 class _PluginSpec:
     """Factory metadata required to re-create a plugin."""
 
-    factory: Type["SmartPlugin"]
+    factory: Type["BasePlugin"]
     kwargs: Dict[str, Any]
     plugin_name: str
 
     def clone(self) -> "_PluginSpec":
         return _PluginSpec(self.factory, dict(self.kwargs), self.plugin_name)
 
-    def instantiate(self) -> "SmartPlugin":
+    def instantiate(self) -> "BasePlugin":
         params = dict(self.kwargs)
         if "name" not in params and self.plugin_name:
             params["name"] = self.plugin_name
@@ -92,9 +92,9 @@ class _PluginSpec:
 # PLUGIN BASE
 # ============================================================
 
-class SmartPlugin:
+class BasePlugin:
     """
-    Base class for SmartSwitch plugins.
+    Base class for Switcher plugins.
 
     Plugins have two main hooks:
 
@@ -147,7 +147,7 @@ class SmartPlugin:
 
     def on_decore(
         self,
-        switch: "SmartSwitch",
+        switch: "Switcher",
         func: Callable,
         entry: MethodEntry,
     ) -> None:
@@ -156,7 +156,7 @@ class SmartPlugin:
 
     def wrap_handler(
         self,
-        switch: "SmartSwitch",
+        switch: "Switcher",
         entry: MethodEntry,
         call_next: Callable,
     ) -> Callable:
@@ -174,14 +174,14 @@ class SmartPlugin:
 
 class _SwitchCall:
     """
-    A proxy object returned by SmartSwitch when called with a string.
+    A proxy object returned by Switcher when called with a string.
 
     It can act both as:
     - a decorator factory (when later called with a single callable)
     - a named/dotted-path dispatch handle (when later called with normal args)
     """
 
-    def __init__(self, switch: "SmartSwitch", selector: str):
+    def __init__(self, switch: "Switcher", selector: str):
         self._switch = switch
         self._selector = selector
 
@@ -198,15 +198,15 @@ class _SwitchCall:
 # SMART SWITCH V2
 # ============================================================
 
-class SmartSwitch:
+class Switcher:
     """
-    SmartSwitch is a decorator + dispatcher + plugin container.
+    Switcher is a decorator + dispatcher + plugin container.
 
     Usage patterns:
 
-        switch = SmartSwitch("main", prefix="do_")
+        switch = Switcher("main", prefix="do_")
 
-        class My(SmartSwitchOwner):
+        class My(SwitcherOwner):
             main = switch
 
             @main
@@ -224,17 +224,17 @@ class SmartSwitch:
         result = main("run")(instance, 10)
     """
 
-    _global_plugin_registry: Dict[str, Type[SmartPlugin]] = {}
+    _global_plugin_registry: Dict[str, Type[BasePlugin]] = {}
 
     @classmethod
-    def register_plugin(cls, name: str, plugin_class: Type[SmartPlugin]) -> None:
+    def register_plugin(cls, name: str, plugin_class: Type[BasePlugin]) -> None:
         """Register a plugin globally so it can be referenced by string name."""
-        if not isinstance(plugin_class, type) or not issubclass(plugin_class, SmartPlugin):
-            raise TypeError("plugin_class must be a SmartPlugin subclass")
+        if not isinstance(plugin_class, type) or not issubclass(plugin_class, BasePlugin):
+            raise TypeError("plugin_class must be a BasePlugin subclass")
         cls._global_plugin_registry[name] = plugin_class
 
     @classmethod
-    def registered_plugins(cls) -> Dict[str, Type[SmartPlugin]]:
+    def registered_plugins(cls) -> Dict[str, Type[BasePlugin]]:
         """Return the map of registered plugin names to their classes."""
         return dict(cls._global_plugin_registry)
 
@@ -243,7 +243,7 @@ class SmartSwitch:
         name: Optional[str] = None,
         *,
         prefix: Optional[str] = None,
-        parent: Optional["SmartSwitch"] = None,
+        parent: Optional["Switcher"] = None,
         inherit_plugins: Optional[bool] = None,
     ):
         self.name = name
@@ -251,17 +251,17 @@ class SmartSwitch:
             self.prefix = parent.prefix if parent is not None else ""
         else:
             self.prefix = prefix
-        self.parent: Optional["SmartSwitch"] = None
+        self.parent: Optional["Switcher"] = None
 
-        self._local_plugins: List[SmartPlugin] = []
+        self._local_plugins: List[BasePlugin] = []
         self._local_plugin_specs: List[_PluginSpec] = []
-        self._inherited_plugins: List[SmartPlugin] = []
+        self._inherited_plugins: List[BasePlugin] = []
         self._inherited_plugin_specs: List[_PluginSpec] = []
         self._inherit_plugins: bool = (
             True if inherit_plugins is None else bool(inherit_plugins)
         )
         self._using_parent_plugins: bool = False
-        self._children: Dict[str, "SmartSwitch"] = {}
+        self._children: Dict[str, "Switcher"] = {}
         self._methods: Dict[str, MethodEntry] = {}
 
         self._owner_class: Optional[Type] = None
@@ -280,7 +280,7 @@ class SmartSwitch:
     # --------------------------------------------------------
     # Children
     # --------------------------------------------------------
-    def add_child(self, child: "SmartSwitch", name: Optional[str] = None) -> None:
+    def add_child(self, child: "Switcher", name: Optional[str] = None) -> None:
         if child.parent is not None and child.parent is not self:
             raise ValueError("Child already has a different parent")
         key = name or (child.name or "child")
@@ -294,7 +294,7 @@ class SmartSwitch:
             child._local_plugins.clear()
             child._local_plugin_specs.clear()
 
-    def get_child(self, name: str) -> "SmartSwitch":
+    def get_child(self, name: str) -> "Switcher":
         try:
             return self._children[name]
         except KeyError:
@@ -303,7 +303,7 @@ class SmartSwitch:
     # --------------------------------------------------------
     # Plugin management
     # --------------------------------------------------------
-    def plug(self, plugin: Any, **config: Any) -> SmartPlugin:
+    def plug(self, plugin: Any, **config: Any) -> "Switcher":
         """Attach a plugin instance, class, or registered name to this switch."""
         if isinstance(plugin, str):
             try:
@@ -317,16 +317,16 @@ class SmartSwitch:
             init_kwargs.setdefault("name", plugin)
             p = plugin_class(**init_kwargs)
             spec = _PluginSpec(plugin_class, init_kwargs, p.name)
-        elif isinstance(plugin, type) and issubclass(plugin, SmartPlugin):
+        elif isinstance(plugin, type) and issubclass(plugin, BasePlugin):
             init_kwargs = dict(config)
             p = plugin(**init_kwargs)
             spec = _PluginSpec(plugin, init_kwargs, p.name)
-        elif isinstance(plugin, SmartPlugin):
+        elif isinstance(plugin, BasePlugin):
             p = plugin
             p.config.update(config)
             spec = p.to_spec()
         else:
-            raise TypeError("plugin must be SmartPlugin subclass or instance")
+            raise TypeError("plugin must be BasePlugin subclass or instance")
         if self._using_parent_plugins:
             self._using_parent_plugins = False
             self._inherit_plugins = False
@@ -334,9 +334,9 @@ class SmartSwitch:
             self._local_plugin_specs.clear()
         self._local_plugins.append(p)
         self._local_plugin_specs.append(spec)
-        return p
+        return self
 
-    def iter_plugins(self) -> List[SmartPlugin]:
+    def iter_plugins(self) -> List[BasePlugin]:
         """Return ordered list of active plugins for this switch."""
         if self._using_parent_plugins:
             return list(self._inherited_plugins)
@@ -348,6 +348,56 @@ class SmartSwitch:
             self._inherited_plugin_specs if self._using_parent_plugins else self._local_plugin_specs
         )
         return [spec.clone() for spec in source]
+
+    def plugin(self, name: str) -> Optional[BasePlugin]:
+        """
+        Get a plugin by name.
+
+        Args:
+            name: The plugin name to search for
+
+        Returns:
+            The plugin instance if found, None otherwise
+
+        Example:
+            sw = Switcher().plug("logging", mode="silent")
+            logger = sw.plugin("logging")
+            history = logger.history()
+        """
+        for p in self.iter_plugins():
+            if p.name == name:
+                return p
+        return None
+
+    def __getattr__(self, name: str) -> BasePlugin:
+        """
+        Dynamic plugin access by attribute name.
+
+        Allows accessing any attached plugin as an attribute.
+        All plugins are treated uniformly - no special cases.
+
+        Args:
+            name: Plugin name to search for
+
+        Returns:
+            The plugin instance if found
+
+        Raises:
+            AttributeError: If no plugin with that name exists
+
+        Example:
+            sw = Switcher().plug("logging", mode="silent")
+            history = sw.logging.history()
+        """
+        plugin = self.plugin(name)
+        if plugin is not None:
+            return plugin
+
+        # Not found - raise AttributeError
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}' "
+            f"and no plugin named '{name}' is attached"
+        )
 
     def use_parent_plugins(self) -> None:
         """Drop local plugins and reuse the parent's plugin stack."""
@@ -427,7 +477,7 @@ class SmartSwitch:
         for plugin in reversed(self.iter_plugins()):
             next_layer = wrapped
 
-            def make_layer(plg: SmartPlugin, call_next: Callable) -> Callable:
+            def make_layer(plg: BasePlugin, call_next: Callable) -> Callable:
                 plugin_name = plg.name
                 entry_name = entry.name
                 wrapped_call = plg.wrap_handler(self, entry, call_next)
@@ -484,12 +534,12 @@ class SmartSwitch:
                 return _SwitchCall(self, selector)
 
             raise TypeError(
-                "SmartSwitch selector usage only supports a single string argument. "
+                "Switcher selector usage only supports a single string argument. "
                 "Call the returned handle to execute handlers."
             )
 
         raise TypeError(
-            "SmartSwitch no longer supports implicit dispatch. "
+            "Switcher no longer supports implicit dispatch. "
             "Call switch('name') to get a callable handler."
         )
 
@@ -556,7 +606,7 @@ class SmartSwitch:
     # --------------------------------------------------------
     # Dispatch helpers
     # --------------------------------------------------------
-    def _resolve_path(self, selector: str) -> Tuple["SmartSwitch", str]:
+    def _resolve_path(self, selector: str) -> Tuple["Switcher", str]:
         """
         Resolve a dotted path "a.b.c.method" into (switch, method_name).
 
@@ -565,7 +615,7 @@ class SmartSwitch:
         if "." not in selector:
             return self, selector
         parts = selector.split(".")
-        node: SmartSwitch = self
+        node: Switcher = self
         for seg in parts[:-1]:
             node = node.get_child(seg)
         return node, parts[-1]
@@ -614,9 +664,9 @@ class SmartSwitch:
 # OWNER BASE CLASS
 # ============================================================
 
-class SmartSwitchOwner:
+class SwitcherOwner:
     """
-    Base class for any class that defines SmartSwitch attributes.
+    Base class for any class that defines Switcher attributes.
 
     It binds switches to the owning class automatically.
     """
@@ -624,5 +674,5 @@ class SmartSwitchOwner:
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         for name, value in cls.__dict__.items():
-            if isinstance(value, SmartSwitch):
+            if isinstance(value, Switcher):
                 value.bind_owner(cls, name)

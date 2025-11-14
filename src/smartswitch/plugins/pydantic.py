@@ -1,5 +1,5 @@
 """
-Pydantic validation plugin for SmartSwitch.
+Pydantic validation plugin for Switcher.
 
 This plugin automatically validates function arguments using type hints via Pydantic v2.
 Requires: pip install smartswitch[pydantic]
@@ -22,17 +22,17 @@ except ImportError:
     )
 
 if TYPE_CHECKING:
-    from ..core import SmartSwitch, MethodEntry
+    from ..core import Switcher, MethodEntry
 
-from ..core import SmartPlugin
+from ..core import BasePlugin
 
 
-class PydanticPlugin(SmartPlugin):
+class PydanticPlugin(BasePlugin):
     """
     Plugin that adds Pydantic validation to handlers based on type hints.
 
     Usage:
-        sw = SmartSwitch().plug("pydantic")
+        sw = Switcher().plug("pydantic")
 
         @sw
         def add(x: int, y: str) -> int:  # Will validate types at runtime
@@ -55,7 +55,7 @@ class PydanticPlugin(SmartPlugin):
 
     def on_decore(
         self,
-        switch: "SmartSwitch",
+        switch: "Switcher",
         func: Callable,
         entry: "MethodEntry",
     ) -> None:
@@ -66,7 +66,7 @@ class PydanticPlugin(SmartPlugin):
         entry.metadata['pydantic'] for use at runtime.
 
         Args:
-            switch: The SmartSwitch instance
+            switch: The Switcher instance
             func: The handler function being decorated
             entry: The method entry with metadata
         """
@@ -115,7 +115,7 @@ class PydanticPlugin(SmartPlugin):
 
     def wrap_handler(
         self,
-        switch: "SmartSwitch",
+        switch: "Switcher",
         entry: "MethodEntry",
         call_next: Callable,
     ) -> Callable:
@@ -126,7 +126,7 @@ class PydanticPlugin(SmartPlugin):
         if available, otherwise skips validation.
 
         Args:
-            switch: The SmartSwitch instance
+            switch: The Switcher instance
             entry: The method entry with metadata
             call_next: The next layer in the wrapper chain
 
@@ -187,5 +187,5 @@ class PydanticPlugin(SmartPlugin):
 
 
 # Register plugin globally
-from ..core import SmartSwitch
-SmartSwitch.register_plugin("pydantic", PydanticPlugin)
+from ..core import Switcher
+Switcher.register_plugin("pydantic", PydanticPlugin)

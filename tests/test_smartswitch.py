@@ -3,11 +3,11 @@ import unittest
 
 from smartasync import smartasync
 
-from smartswitch.core import SmartSwitch, SmartPlugin, SmartSwitchOwner
+from smartswitch.core import Switcher, BasePlugin, SwitcherOwner
 from smartswitch.plugins import DbOpPlugin, SmartAsyncPlugin
 
 
-class CountPlugin(SmartPlugin):
+class CountPlugin(BasePlugin):
     def wrap_handler(self, switch, entry, call_next):
         def wrapper(*args, **kwargs):
             instance = args[0] if args else None
@@ -17,23 +17,23 @@ class CountPlugin(SmartPlugin):
         return wrapper
 
 
-class MetaPlugin(SmartPlugin):
+class MetaPlugin(BasePlugin):
     def on_decore(self, switch, func, entry):
         entry.metadata["decorated"] = True
 
 
-class TracePlugin(SmartPlugin):
+class TracePlugin(BasePlugin):
     def on_decore(self, switch, func, entry):
         label = self.config.get("label", self.name)
         entry.metadata.setdefault("trace", []).append(label)
 
 
-class FlagPlugin(SmartPlugin):
+class FlagPlugin(BasePlugin):
     def on_decore(self, switch, func, entry):
         entry.metadata["flagged"] = True
 
 
-class GatePlugin(SmartPlugin):
+class GatePlugin(BasePlugin):
     def wrap_handler(self, switch, entry, call_next):
         def wrapper(*args, **kwargs):
             config = self.get_config(entry.name)
@@ -43,8 +43,8 @@ class GatePlugin(SmartPlugin):
         return wrapper
 
 
-class Base(SmartSwitchOwner):
-    main = SmartSwitch("main", prefix="do_")
+class Base(SwitcherOwner):
+    main = Switcher("main", prefix="do_")
     main.plug(CountPlugin)
     main.plug(MetaPlugin)
 
@@ -79,7 +79,7 @@ class DummyDB:
 
 
 class Child(Base):
-    child = SmartSwitch("child", parent=Base.main)
+    child = Switcher("child", parent=Base.main)
 
     @Base.main
     def do_run(self, x):
@@ -94,7 +94,7 @@ class Child(Base):
         return f"child:{x}"
 
 
-class TestSmartSwitch(unittest.TestCase):
+class TestSwitcher(unittest.TestCase):
     def test_prefix_and_alias_registration(self):
         obj = Child()
         desc = Child.main.describe()
@@ -161,12 +161,12 @@ class TestSmartSwitch(unittest.TestCase):
         )
 
     def test_use_parent_plugins_stack(self):
-        class Parent(SmartSwitchOwner):
-            root = SmartSwitch("root")
+        class Parent(SwitcherOwner):
+            root = Switcher("root")
             root.plug(TracePlugin, name="TraceParent", label="parent")
 
         class ChildOwner(Parent):
-            branch = SmartSwitch("branch", parent=Parent.root, inherit_plugins=True)
+            branch = Switcher("branch", parent=Parent.root, inherit_plugins=True)
 
             @branch
             def do_branch(self):
@@ -177,12 +177,12 @@ class TestSmartSwitch(unittest.TestCase):
         self.assertEqual(entry.metadata["trace"], ["parent"])
 
     def test_plug_breaks_use_parent_mode(self):
-        class Parent(SmartSwitchOwner):
-            root = SmartSwitch("root")
+        class Parent(SwitcherOwner):
+            root = Switcher("root")
             root.plug(TracePlugin, name="TraceParent", label="parent")
 
         class ChildOwner(Parent):
-            branch = SmartSwitch("branch", parent=Parent.root, inherit_plugins=True)
+            branch = Switcher("branch", parent=Parent.root, inherit_plugins=True)
             branch.plug(TracePlugin, name="TraceChild", label="child")
 
             @branch
@@ -194,12 +194,12 @@ class TestSmartSwitch(unittest.TestCase):
         self.assertEqual(entry.metadata["trace"], ["child"])
 
     def test_copy_plugins_from_parent(self):
-        class Parent(SmartSwitchOwner):
-            root = SmartSwitch("root")
+        class Parent(SwitcherOwner):
+            root = Switcher("root")
             root.plug(TracePlugin, name="TraceParent", label="parent")
 
         class ChildOwner(Parent):
-            branch = SmartSwitch("branch", parent=Parent.root, inherit_plugins=False)
+            branch = Switcher("branch", parent=Parent.root, inherit_plugins=False)
             branch.copy_plugins_from_parent()
             branch.plug(TracePlugin, name="TraceChild", label="child")
 
@@ -212,10 +212,10 @@ class TestSmartSwitch(unittest.TestCase):
         self.assertEqual(entry.metadata["trace"], ["parent", "child"])
 
     def test_register_plugin_by_name(self):
-        SmartSwitch.register_plugin("flag", FlagPlugin)
+        Switcher.register_plugin("flag", FlagPlugin)
         try:
-            class Owner(SmartSwitchOwner):
-                switch = SmartSwitch("switch")
+            class Owner(SwitcherOwner):
+                switch = Switcher("switch")
                 switch.plug("flag")
 
                 @switch
@@ -226,17 +226,17 @@ class TestSmartSwitch(unittest.TestCase):
             self.assertIn("flag", entry.plugins)
             self.assertTrue(entry.metadata["flagged"])
         finally:
-            SmartSwitch._global_plugin_registry.pop("flag", None)
+            Switcher._global_plugin_registry.pop("flag", None)
 
     def test_unknown_registered_plugin_raises(self):
-        switch = SmartSwitch("switch")
+        switch = Switcher("switch")
         with self.assertRaises(ValueError):
             switch.plug("missing")
 
     def test_plugin_config_per_method(self):
-        class Owner(SmartSwitchOwner):
-            gate = SmartSwitch("gate")
-            gate_plugin = gate.plug(GatePlugin)
+        class Owner(SwitcherOwner):
+            gate = Switcher("gate")
+            gate.plug(GatePlugin)
 
             @gate
             def do_run(self, x):
@@ -246,31 +246,31 @@ class TestSmartSwitch(unittest.TestCase):
             def do_block(self, x):
                 return f"block:{x}"
 
-        Owner.gate_plugin.configure("do_block", blocked=True)
+        Owner.gate.plugin("GatePlugin").configure("do_block", blocked=True)
         obj = Owner()
         self.assertEqual(Owner.gate("do_run")(obj, 1), "run:1")
         with self.assertRaises(RuntimeError):
             Owner.gate("do_block")(obj, 2)
 
     def test_plugin_config_enabled_flag(self):
-        class Owner(SmartSwitchOwner):
-            gate = SmartSwitch("gate")
-            gate_plugin = gate.plug(GatePlugin)
+        class Owner(SwitcherOwner):
+            gate = Switcher("gate")
+            gate.plug(GatePlugin)
 
             @gate
             def do_stable(self, x):
                 return f"stable:{x}"
 
-        Owner.gate_plugin.configure(blocked=True)
+        Owner.gate.plugin("GatePlugin").configure(blocked=True)
         owner = Owner()
         with self.assertRaises(RuntimeError):
             Owner.gate("do_stable")(owner, 1)
-        Owner.gate_plugin.configure("do_stable", enabled=False)
+        Owner.gate.plugin("GatePlugin").configure("do_stable", enabled=False)
         self.assertEqual(Owner.gate("do_stable")(owner, 2), "stable:2")
 
     def test_smartasync_plugin_wraps_async_handler(self):
-        class Owner(SmartSwitchOwner):
-            api = SmartSwitch("api")
+        class Owner(SwitcherOwner):
+            api = Switcher("api")
             api.plug(SmartAsyncPlugin)
 
             @api
@@ -288,8 +288,8 @@ class TestSmartSwitch(unittest.TestCase):
         self.assertEqual(asyncio.run(runner()), "async:async")
 
     def test_smartasync_plugin_respects_pre_wrapped_functions(self):
-        class Owner(SmartSwitchOwner):
-            api = SmartSwitch("api")
+        class Owner(SwitcherOwner):
+            api = Switcher("api")
             api.plug(SmartAsyncPlugin)
 
             @api
@@ -305,8 +305,8 @@ class TestSmartSwitch(unittest.TestCase):
         self.assertFalse(entry.metadata["smartasync"]["wrapped"])
 
     def test_dbop_plugin_injects_cursor_and_commits(self):
-        class Table(SmartSwitchOwner):
-            dbop = SmartSwitch("dbop")
+        class Table(SwitcherOwner):
+            dbop = Switcher("dbop")
             dbop.plug(DbOpPlugin)
 
             def __init__(self):
@@ -323,8 +323,8 @@ class TestSmartSwitch(unittest.TestCase):
         self.assertEqual(table.db.commits, 1)
 
     def test_dbop_plugin_rolls_back_on_error(self):
-        class Table(SmartSwitchOwner):
-            dbop = SmartSwitch("dbop")
+        class Table(SwitcherOwner):
+            dbop = Switcher("dbop")
             dbop.plug(DbOpPlugin)
 
             def __init__(self):
