@@ -75,8 +75,13 @@ class DbOpPlugin(BasePlugin):
 
 Switcher.register_plugin("dbop", DbOpPlugin)
 
-# Import logging and pydantic plugins
+# Import logging plugin (always available)
 from .logging import LoggingPlugin
-from .pydantic import PydanticPlugin
 
-__all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin", "PydanticPlugin"]
+# Import pydantic plugin only if pydantic is installed
+try:
+    from .pydantic import PydanticPlugin
+    __all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin", "PydanticPlugin"]
+except ImportError:
+    # Pydantic not installed - plugin not available
+    __all__ = ["SmartAsyncPlugin", "DbOpPlugin", "LoggingPlugin"]
