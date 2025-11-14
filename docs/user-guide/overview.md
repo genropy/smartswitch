@@ -31,9 +31,10 @@ def handle_request(action, user_type, data):
 
 ## The Solution
 
-SmartSwitch provides three powerful dispatch mechanisms:
+SmartSwitch provides a powerful named registry and plugin-based dispatch system:
 
-### 1. Named Registry
+### Named Handler Registry
+
 Call functions by name or custom alias - perfect for command patterns, plugin systems, and API routing.
 
 ```python
@@ -49,45 +50,30 @@ def get_users():
 def get_posts():
     return ["Post 1", "Post 2"]
 
+@api
+def delete_user(user_id: int):
+    return f"Deleted user {user_id}"
+
 # Direct invocation by name
 result = api("get_users")()
+result = api("delete_user")(user_id=123)
 ```
 
-### 2. Value-Based Dispatch
-Route calls based on runtime argument values - ideal for business rules and state machines.
+### Plugin-Based Composition
+
+Extend functionality with middleware-style plugins for logging, validation, database operations, and more.
 
 ```python
-processor = Switcher()
+from smartswitch import Switcher
+from smartswitch.plugins import LoggingPlugin
 
-@processor(valrule=lambda user_type: user_type == "admin")
-def admin_action(user_type, data):
-    return "Admin handling"
+api = Switcher()
+api.plug(LoggingPlugin())
 
-@processor(valrule=lambda user_type: user_type == "user")
-def user_action(user_type, data):
-    return "User handling"
-
-# Automatically selects right handler
-result = processor()(user_type="admin", data="test")
-```
-
-### 3. Type-Based Dispatch
-Route calls based on argument types - eliminates isinstance chains.
-
-```python
-formatter = Switcher()
-
-@formatter(typerule={'data': str})
-def format_string(data):
-    return data.upper()
-
-@formatter(typerule={'data': int})
-def format_number(data):
-    return f"Number: {data}"
-
-# Dispatches based on type
-result = formatter()(data="hello")  # → "HELLO"
-result = formatter()(data=42)       # → "Number: 42"
+@api
+def process_order(order_id: int):
+    # Plugin automatically logs entry/exit
+    return f"Processed order {order_id}"
 ```
 
 ## When to Use SmartSwitch

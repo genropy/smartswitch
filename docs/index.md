@@ -4,15 +4,14 @@
 
 # SmartSwitch
 
-**Intelligent rule-based function dispatch for Python**
+**Intelligent function registry and dispatch for Python**
 
-SmartSwitch is a powerful library that enables elegant function dispatching based on type rules and value conditions. Write cleaner, more maintainable code by separating business logic from control flow.
+SmartSwitch is a powerful library that enables elegant function dispatching through named registries and plugin-based composition. Write cleaner, more maintainable code by separating business logic from control flow.
 
 ## Key Features
 
 - **Named handler registry**: Call functions by name or custom alias
-- **Value-based dispatch**: Route calls based on argument values
-- **Type-based dispatch**: Route calls based on argument types
+- **Plugin system**: Extend functionality with middleware-style plugins
 - **Zero dependencies**: Pure Python 3.10+ standard library
 - **High performance**: Optimized with caching and pre-compiled checks
 - **Type safe**: Full type hints support
@@ -109,118 +108,6 @@ result = ops('reset')()
 - No separate mapping to maintain
 - Function name can be descriptive, alias can be short
 
-### 3. Value-Based Logic
-
-**The Problem**: Complex business logic with many conditions.
-
-**Without SmartSwitch**:
-```python
-def handle_user(user_type, reason):
-    # Long, nested if-elif chains
-    if user_type == 'to_delete' and reason == 'no_payment':
-        # Remove user immediately
-        remove_user()
-    elif reason == 'no_payment':
-        # Just send reminder
-        send_payment_reminder()
-    elif user_type == 'to_delete':
-        # Archive for other reasons
-        archive_user()
-    else:
-        # Normal processing
-        process_user()
-```
-
-**With SmartSwitch**:
-```python
-users = Switcher()
-
-@users(valrule=lambda user_type, reason:
-       user_type == 'to_delete' and reason == 'no_payment')
-def remove_user(user_type, reason):
-    return "User removed"
-
-@users(valrule=lambda reason: reason == 'no_payment')
-def send_payment_reminder(user_type, reason):
-    return "Reminder sent"
-
-@users(valrule=lambda user_type: user_type == 'to_delete')
-def archive_user(user_type, reason):
-    return "User archived"
-
-@users
-def process_user(user_type, reason):
-    return "User processed"
-
-# Automatic dispatch - right handler chosen
-result = users()(user_type='to_delete', reason='no_payment')
-```
-
-**Why it's better**:
-- Each handler is separate, testable function
-- Rules are declarative and explicit
-- Easy to add new cases without touching existing code
-- No deep nesting
-
-**Compact lambda syntax**: For complex multi-parameter conditions, you can use dict-style lambda:
-
-```python
-@users(valrule=lambda kw: kw['user_type'] == 'to_delete' and kw['reason'] == 'no_payment')
-def remove_user(user_type, reason):
-    return "User removed"
-```
-
-This allows checking multiple parameters in a single compact expression.
-
-### 4. Type-Based Routing
-
-**The Problem**: Different handling for different data types.
-
-**Without SmartSwitch**:
-```python
-def process(data):
-    if isinstance(data, str):
-        return data.upper()
-    elif isinstance(data, int):
-        return data * 2
-    elif isinstance(data, list):
-        return len(data)
-    else:
-        return None
-```
-
-**With SmartSwitch**:
-```python
-processor = Switcher()
-
-@processor(typerule={'data': str})
-def process_string(data):
-    return data.upper()
-
-@processor(typerule={'data': int})
-def process_number(data):
-    return data * 2
-
-@processor(typerule={'data': list})
-def process_list(data):
-    return len(data)
-
-@processor
-def process_other(data):
-    return None
-
-# Automatic dispatch based on type
-result = processor()(data="hello")  # → "HELLO"
-result = processor()(data=42)       # → 84
-result = processor()(data=[1,2,3])  # → 3
-```
-
-**Why it's better**:
-- Type checking is declarative
-- Each type handler is independent
-- Easy to extend with new types
-- More maintainable than isinstance chains
-
 ## Why SmartSwitch?
 
 Traditional approaches to conditional logic often lead to:
@@ -263,8 +150,6 @@ user-guide/basic
 
 guide/named-handlers
 guide/api-discovery
-guide/valrules
-guide/typerules
 guide/best-practices
 ```
 

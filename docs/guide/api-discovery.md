@@ -140,11 +140,50 @@ parent = Switcher(name="parent")
 child = Switcher(name="child")
 
 # Add child - automatically sets parent
-parent.add_child(child)
+parent.add_child(child, name="child")
 
 assert child.parent is parent
-assert child in parent.children
+assert parent.describe()["children"]["child"] is child  # describe() returns a nested dict
 ```
+
+`Switcher.add_child()` now accepts either a `Switcher` instance or an **arbitrary object**.
+When you pass a non-switch object (e.g., a service class), SmartSwitch scans it for
+all switchers without a parent—both class attributes and instance attributes—and
+mounts them automatically:
+
+```python
+class BillingModule:
+    api = Switcher("billing")
+
+    def __init__(self):
+        self.invoicing = Switcher("invoicing")
+
+root = Switcher("root")
+root.add_child(BillingModule())  # Finds both api + invoicing switchers
+
+assert root.get_child("billing") is BillingModule.api
+assert root.get_child("invoicing")
+```
+
+This makes it easy to cascade service classes: build self-contained modules that
+expose one or more switchers, then plug them into a root switch without writing
+any boilerplate. Typical pattern:
+
+```python
+class Shop:
+    api = Switcher("shop")
+
+    def __init__(self, conn_string):
+        self.db = SqlDb(conn_string, self)
+        self.tables = InventoryTables(self.db)
+
+        # Automatically attach every switch defined on db/tables
+        self.api.add_child(self.db)
+        self.api.add_child(self.tables)
+```
+
+Each module controls its own switch hierarchy, while the root (`Shop.api`) simply
+mounts them and exposes a single entry point for SmartPublisher or CLI tooling.
 
 ### Querying Children
 

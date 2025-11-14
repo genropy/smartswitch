@@ -6,79 +6,7 @@ This guide provides production-ready patterns and best practices for using Smart
 
 ## Design Principles
 
-<!-- test: test_complete.py::test_rule_priority_by_registration_order -->
-
-### 1. Register Specific Rules First
-
-Rules are evaluated in **registration order**. Always register more specific rules before more general ones:
-
-**From test**: [test_rule_priority_by_registration_order](https://github.com/genropy/smartswitch/blob/main/tests/test_complete.py#L347-L371)
-
-```python
-# ✅ Good: Specific rule first
-sw = Switcher()
-
-@sw(typerule={'x': int}, valrule=lambda x: x > 100)
-def handle_large_int(x):
-    return "large int"
-
-@sw(typerule={'x': int})
-def handle_any_int(x):
-    return "any int"
-
-# ❌ Bad: General rule first (specific rule never matches)
-sw = Switcher()
-
-@sw(typerule={'x': int})
-def handle_any_int(x):
-    return "any int"
-
-@sw(typerule={'x': int}, valrule=lambda x: x > 100)
-def handle_large_int(x):
-    return "large int"  # Never called!
-```
-
-<!-- test: test_complete.py::test_default_handler_catches_all -->
-
-### 2. Always Provide a Default Handler
-
-Unless you're certain all cases are covered, always register a default handler:
-
-**From test**: [test_default_handler_catches_all](https://github.com/genropy/smartswitch/blob/main/tests/test_complete.py#L518-L534)
-
-```python
-# ✅ Good: Default handler catches unexpected cases
-sw = Switcher()
-
-@sw(typerule={'x': int})
-def handle_int(x):
-    return "int"
-
-@sw(typerule={'x': str})
-def handle_string(x):
-    return "string"
-
-@sw
-def handle_default(x):
-    return f"Unexpected type: {type(x).__name__}"
-
-# ❌ Bad: No default handler (raises ValueError for float)
-sw = Switcher()
-
-@sw(typerule={'x': int})
-def handle_int(x):
-    return "int"
-
-@sw(typerule={'x': str})
-def handle_string(x):
-    return "string"
-
-# sw()(x=3.14) → ValueError: No rule matched
-```
-
-**Exception:** When you want strict validation and prefer errors for unhandled cases.
-
-### 3. Use Descriptive Names
+### 1. Use Descriptive Names
 
 Make handler names self-documenting:
 
@@ -102,7 +30,7 @@ def handler2(transaction):
     ...
 ```
 
-### 4. Use Prefix Conventions
+### 2. Use Prefix Conventions
 
 When you have many related handlers, use a consistent prefix and the `prefix` parameter:
 
@@ -146,152 +74,6 @@ def local(data):
     ...
 ```
 
-## Type Rules Best Practices
-
-### Use Union Types for Flexibility
-
-```python
-# ✅ Good: Handles multiple numeric types
-@sw(typerule={'value': int | float})
-def handle_number(value):
-    return value * 2
-
-# ❌ Bad: Only handles int
-@sw(typerule={'value': int})
-def handle_number(value):
-    return value * 2
-```
-
-### Leverage Custom Classes
-
-Use custom classes for domain-specific dispatch:
-
-```python
-# ✅ Good: Type-safe domain dispatch
-class AdminUser:
-    pass
-
-class RegularUser:
-    pass
-
-@sw(typerule={'user': AdminUser})
-def handle_admin(user):
-    return "admin access"
-
-@sw(typerule={'user': RegularUser})
-def handle_regular(user):
-    return "regular access"
-
-# ❌ Bad: String-based type checking
-@sw(valrule=lambda user: user['type'] == 'admin')
-def handle_admin(user):
-    return "admin access"
-```
-
-### Check All Parameters
-
-When using multiple parameters, specify type rules for all relevant parameters:
-
-```python
-# ✅ Good: All parameters validated
-@sw(typerule={'a': int, 'b': int, 'c': int})
-def handle_ints(a, b, c):
-    return a + b + c
-
-# ❌ Bad: Partial validation
-@sw(typerule={'a': int})
-def handle_ints(a, b, c):
-    return a + b + c  # b and c might not be ints!
-```
-
-## Value Rules Best Practices
-
-### Use Named Functions for Complex Logic
-
-For complex value rules, use named functions instead of lambdas:
-
-```python
-# ✅ Good: Named function for complex logic
-def is_valid_user(username, role, age):
-    """Check if user is valid based on role and age."""
-    if role == 'admin' and age < 21:
-        return False
-    if role == 'moderator' and age < 18:
-        return False
-    return len(username) >= 3
-
-@sw(valrule=is_valid_user)
-def handle_valid_user(username, role, age):
-    ...
-
-# ❌ Bad: Unreadable lambda
-@sw(valrule=lambda username, role, age: not (role == 'admin' and age < 21) and not (role == 'moderator' and age < 18) and len(username) >= 3)
-def handle_valid_user(username, role, age):
-    ...
-```
-
-**Benefits:**
-- Easier to test independently
-- Better stack traces
-- Reusable across multiple handlers
-- Self-documenting with docstrings
-
-### Safe Dictionary Access
-
-Use `.get()` for optional parameters:
-
-```python
-# ✅ Good: Safe access with defaults
-@sw(valrule=lambda **kw: kw.get('status', 'pending') == 'active')
-def handle_active(status='pending'):
-    ...
-
-# ❌ Bad: KeyError if 'status' missing
-@sw(valrule=lambda **kw: kw['status'] == 'active')
-def handle_active(status='pending'):
-    ...
-```
-
-### Avoid Side Effects in Rules
-
-Value rules should be pure functions without side effects:
-
-```python
-# ✅ Good: Pure function
-@sw(valrule=lambda x: x > 0)
-def handle_positive(x):
-    print(f"Processing {x}")  # Side effect in handler
-    return x * 2
-
-# ❌ Bad: Side effect in rule
-@sw(valrule=lambda x: print(f"Checking {x}") or x > 0)
-def handle_positive(x):
-    return x * 2
-```
-
-**Reason:** Rules may be evaluated multiple times or in unexpected order.
-
-### Choose Appropriate Syntax
-
-Use expanded syntax for simple conditions, compact for dictionary operations:
-
-```python
-# ✅ Good: Expanded for simple condition
-@sw(valrule=lambda x: x > 0)
-def handle_positive(x):
-    ...
-
-# ✅ Good: Compact for dictionary logic
-@sw(valrule=lambda kw: kw.get('mode') == 'test' and kw.get('debug', False))
-def handle_debug_test(mode, debug=False):
-    ...
-
-# ❌ Bad: Compact when not needed
-@sw(valrule=lambda kw: kw['x'] > 0)
-def handle_positive(x):
-    ...  # Expanded syntax is clearer here
-```
-
 ## Performance Best Practices
 
 ### When to Use SmartSwitch
@@ -300,20 +82,20 @@ SmartSwitch is optimized for functions that do **real work** (>1ms):
 
 ```python
 # ✅ Good: I/O-bound operation
-@sw(typerule={'url': str})
+@sw
 def fetch_from_api(url):
     response = requests.get(url)  # Milliseconds
     return response.json()
 
 # ✅ Good: Business logic
-@sw(valrule=lambda amount: amount > 1000)
+@sw
 def process_large_transaction(amount):
     # Complex validation, database queries, etc.
     ...
 
 # ❌ Bad: Ultra-fast inner loop
 for i in range(1_000_000):
-    result = sw()(x=i)  # Overhead dominates
+    result = sw('handler')(x=i)  # Overhead dominates
 ```
 
 **Overhead:** ~1-2 microseconds per dispatch
@@ -328,20 +110,20 @@ for i in range(1_000_000):
 - ❌ Nanosecond-level operations
 - ❌ Inner loops with millions of iterations
 
-### Use Named Handlers for Hot Paths
+### Use Direct Named Access for Hot Paths
 
-For performance-critical code, use named handlers directly:
+For performance-critical code, retrieve and cache handlers:
 
 ```python
-# ✅ Good: Direct access (50-100ns)
+# ✅ Good: Direct access (minimal overhead)
 handler = sw('process_payment')
 result = handler(transaction)
 
-# ❌ Slower: Rule-based dispatch (~1-2μs)
-result = sw()(transaction)
+# Also good: Direct call
+result = sw('process_payment')(transaction)
 ```
 
-**Use case:** When you know the handler name at runtime and need maximum performance.
+**Use case:** When you know the handler name at runtime.
 
 ### Cache Switchers
 
@@ -367,12 +149,14 @@ def handle_request(method, path):
 
 ### Validate Inputs in Handlers
 
-Don't rely solely on rules for validation:
+Always validate inputs within your handlers:
 
 ```python
-# ✅ Good: Additional validation in handler
-@sw(typerule={'amount': int | float})
+# ✅ Good: Comprehensive validation in handler
+@sw
 def process_payment(amount):
+    if not isinstance(amount, (int, float)):
+        raise TypeError("Amount must be a number")
     if amount <= 0:
         raise ValueError("Amount must be positive")
     if amount > 1_000_000:
@@ -381,10 +165,10 @@ def process_payment(amount):
     ...
 
 # ❌ Bad: No validation in handler
-@sw(typerule={'amount': int | float})
+@sw
 def process_payment(amount):
     # Assumes amount is valid
-    charge_card(amount)  # What if amount is negative?
+    charge_card(amount)  # What if amount is negative or wrong type?
 ```
 
 ### Handle Missing Handlers Gracefully
@@ -496,7 +280,7 @@ Use docstrings for complex handlers:
 
 ```python
 # ✅ Good: Clear documentation
-@sw(typerule={'user': AdminUser})
+@sw
 def handle_admin_request(user, action):
     """
     Handle administrative actions.
@@ -511,20 +295,6 @@ def handle_admin_request(user, action):
     Raises:
         PermissionError: If user lacks required permissions
     """
-    ...
-```
-
-### Document Rule Intent with Comments
-
-For complex rules, add comments:
-
-```python
-@sw(
-    typerule={'amount': int | float},
-    # Large transactions require special processing and auditing
-    valrule=lambda amount: amount > 10_000
-)
-def process_large_transaction(amount):
     ...
 ```
 
@@ -599,16 +369,22 @@ def execute_user_command(command, *args):
     return commands(command)(*args)  # Dangerous!
 ```
 
-### Sanitize Inputs in Value Rules
+### Sanitize All Inputs
+
+Always validate and sanitize inputs in your handlers:
 
 ```python
 # ✅ Good: Safe string handling
-@sw(valrule=lambda path: path.startswith('/api/') and '..' not in path)
+@sw
 def handle_api_request(path):
+    if not path.startswith('/api/'):
+        raise ValueError("Invalid API path")
+    if '..' in path:
+        raise ValueError("Path traversal detected")
     ...
 
 # ❌ Bad: No sanitization
-@sw(valrule=lambda path: path.startswith('/api/'))
+@sw
 def handle_api_request(path):
     ...  # Vulnerable to path traversal
 ```
@@ -635,8 +411,7 @@ class APIServer:
 
 ## Next Steps
 
-- Review [Type Rules Guide](typerules.md)
-- Review [Value Rules Guide](valrules.md)
 - Review [Named Handlers Guide](named-handlers.md)
-- Explore [Real-World Examples](../examples/index.md)
+- Explore [Plugin System](../plugins/index.md)
+- Check out [Real-World Examples](../examples/index.md)
 - Read the [API Reference](../api/switcher.md)

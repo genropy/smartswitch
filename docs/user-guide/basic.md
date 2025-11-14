@@ -10,463 +10,384 @@ from smartswitch import Switcher
 sw = Switcher()
 ```
 
-You can also give your switcher a name for debugging:
+You can also give your switcher a name and description for better organization:
 
 ```python
-sw = Switcher(name="my_dispatcher")
+sw = Switcher(
+    name="api_handlers",
+    description="HTTP API request handlers"
+)
 ```
 
-## Handler Registration
+## Registering Handlers
 
-### Type-Based Handlers
+### Simple Registration
 
-Register handlers that match based on argument types using the `typerule` parameter:
+The most basic way to register a handler is using the `@sw` decorator:
 
 ```python
 sw = Switcher()
 
-@sw(typerule={'text': str})
-def process_text(text):
-    return text.upper()
+@sw
+def get_users():
+    """Fetch all users from database."""
+    return ["Alice", "Bob", "Charlie"]
 
-@sw(typerule={'number': int})
-def process_number(number):
-    return number * 2
+@sw
+def get_posts():
+    """Fetch all posts from database."""
+    return ["Post 1", "Post 2", "Post 3"]
 
-@sw(typerule={'items': list})
-def process_items(items):
-    return len(items)
-
-# Automatic dispatch
-print(sw()(text="hello"))     # HELLO
-print(sw()(number=5))         # 10
-print(sw()(items=[1,2,3]))    # 3
+@sw
+def create_user(name: str, email: str):
+    """Create a new user."""
+    return {"name": name, "email": email, "id": 123}
 ```
 
-The `typerule` parameter takes a dictionary mapping parameter names to their expected types.
+Each function is automatically registered by its function name.
 
-### Value-Based Handlers
+### Handlers with Arguments
 
-Add conditions on argument values using the `valrule` parameter:
-
-```python
-sw = Switcher()
-
-@sw(valrule=lambda x: x < 10)
-def handle_small(x):
-    return "small"
-
-@sw(valrule=lambda x: x >= 10 and x < 100)
-def handle_medium(x):
-    return "medium"
-
-@sw(valrule=lambda x: x >= 100)
-def handle_large(x):
-    return "large"
-
-print(sw()(x=5))    # small
-print(sw()(x=50))   # medium
-print(sw()(x=500))  # large
-```
-
-The `valrule` parameter takes a lambda (or any callable) that receives the arguments as keyword parameters and returns a boolean.
-
-### Multiple Arguments
-
-Handlers can accept multiple arguments. Type rules specify types for each parameter:
+Handlers can accept any number of arguments with type hints:
 
 ```python
-sw = Switcher()
+@sw
+def update_user(user_id: int, name: str, email: str):
+    """Update user information."""
+    return {
+        "user_id": user_id,
+        "name": name,
+        "email": email,
+        "updated": True
+    }
 
-@sw(typerule={'text': str, 'count': int})
-def format_message(text, count):
-    return f"{text} (x{count})"
-
-@sw(typerule={'a': int, 'b': int})
-def add_numbers(a, b):
-    return a + b
-
-print(sw()(text="hi", count=3))  # hi (x3)
-print(sw()(a=5, b=10))           # 15
-```
-
-Value rules receive all arguments:
-
-```python
-sw = Switcher()
-
-@sw(valrule=lambda a, b: a > b)
-def compare_greater(a, b):
-    return f"{a} is greater than {b}"
-
-@sw(valrule=lambda a, b: a < b)
-def compare_less(a, b):
-    return f"{a} is less than {b}"
-
-@sw(valrule=lambda a, b: a == b)
-def compare_equal(a, b):
-    return f"{a} equals {b}"
-
-print(sw()(a=10, b=5))   # 10 is greater than 5
-print(sw()(a=3, b=7))    # 3 is less than 7
-print(sw()(a=5, b=5))    # 5 equals 5
+@sw
+def delete_user(user_id: int):
+    """Delete a user by ID."""
+    return {"deleted": user_id}
 ```
 
 ## Calling Handlers
 
-### Automatic Dispatch
-
-Use `sw()` to get a dispatcher that automatically selects the right handler:
-
-```python
-sw = Switcher()
-
-@sw(typerule={'x': int})
-def handle_int(x):
-    return "integer"
-
-@sw(typerule={'x': str})
-def handle_str(x):
-    return "string"
-
-# Call with sw()
-result = sw()(x=42)      # "integer"
-result = sw()(x="hi")    # "string"
-```
-
 ### By Name
 
-Use `sw('name')` to retrieve a specific handler by its function name:
+Call handlers by their function name:
 
 ```python
-sw = Switcher()
+# Retrieve and call in one line
+users = sw("get_users")()
 
-@sw(typerule={'x': int})
-def process(x):
-    return x * 2
+# Or retrieve first, then call
+handler = sw("get_users")
+users = handler()
 
-# Get handler by name
-handler = sw('process')
-
-# Call it
-result = handler(x=5)  # 10
-
-# Or in one line
-result = sw('process')(x=5)  # 10
+# With arguments
+new_user = sw("create_user")(name="Dave", email="dave@example.com")
+user_updated = sw("update_user")(user_id=123, name="David", email="david@example.com")
 ```
 
-## Rule Priority
+### Error Handling
 
-When multiple rules could match, SmartSwitch evaluates them in registration order and uses the first match:
-
-```python
-sw = Switcher()
-
-# Registered first - more specific
-@sw(typerule={'x': int}, valrule=lambda x: x < 0)
-def handle_negative_int(x):
-    return "negative int"
-
-# Registered second - less specific
-@sw(typerule={'x': int})
-def handle_any_int(x):
-    return "any int"
-
-# Default - least specific
-@sw
-def handle_default(x):
-    return "anything"
-
-print(sw()(x=-5))    # "negative int" (first match)
-print(sw()(x=5))     # "any int" (second match)
-print(sw()(x="hi"))  # "anything" (default)
-```
-
-**Best practice**: Register more specific rules before more general ones.
-
-## Working with Complex Types
-
-### Union Types
-
-Specify multiple allowed types using `|` or `Union`:
+If a handler doesn't exist, SmartSwitch raises a `KeyError`:
 
 ```python
-from typing import Union
-
-sw = Switcher()
-
-@sw(typerule={'value': int | float})
-def process_number(value):
-    return f"Number: {value * 2}"
-
-@sw(typerule={'value': str})
-def process_text(value):
-    return f"Text: {value.upper()}"
-
-print(sw()(value=5))       # Number: 10
-print(sw()(value=2.5))     # Number: 5.0
-print(sw()(value="hi"))    # Text: HI
-```
-
-### Custom Classes
-
-You can dispatch based on custom class types:
-
-```python
-class Person:
-    def __init__(self, name):
-        self.name = name
-
-class Company:
-    def __init__(self, name):
-        self.name = name
-
-sw = Switcher()
-
-@sw(typerule={'entity': Person})
-def greet_person(entity):
-    return f"Hello, {entity.name}!"
-
-@sw(typerule={'entity': Company})
-def greet_company(entity):
-    return f"Welcome, {entity.name} Corp!"
-
-person = Person("Alice")
-company = Company("Acme")
-
-print(sw()(entity=person))    # Hello, Alice!
-print(sw()(entity=company))   # Welcome, Acme Corp!
-```
-
-## Combining Type and Value Rules
-
-You can combine both types of rules in a single decorator:
-
-```python
-sw = Switcher()
-
-# Only positive integers
-@sw(typerule={'x': int}, valrule=lambda x: x > 0)
-def handle_positive_int(x):
-    return f"Positive int: {x}"
-
-# Only negative integers
-@sw(typerule={'x': int}, valrule=lambda x: x < 0)
-def handle_negative_int(x):
-    return f"Negative int: {x}"
-
-# Any string longer than 5 chars
-@sw(typerule={'x': str}, valrule=lambda x: len(x) > 5)
-def handle_long_string(x):
-    return f"Long string: {x}"
-
-# Default
-@sw
-def handle_other(x):
-    return f"Other: {x}"
-
-print(sw()(x=10))         # Positive int: 10
-print(sw()(x=-5))         # Negative int: -5
-print(sw()(x="hello!"))   # Long string: hello!
-print(sw()(x="hi"))       # Other: hi
-```
-
-## Error Handling
-
-### No Match Found
-
-When no handler matches and there's no default, SmartSwitch raises a `ValueError`:
-
-```python
-sw = Switcher()
-
-@sw(typerule={'x': int})
-def handle(x):
-    return x
-
 try:
-    sw()(x="not an int")
-except ValueError as e:
-    print(f"Error: {e}")  # No rule matched
+    result = sw("nonexistent_handler")()
+except KeyError:
+    print("Handler not found")
 ```
 
-Always provide a default handler to avoid this:
+You can check if a handler exists before calling:
 
 ```python
-sw = Switcher()
-
-@sw(typerule={'x': int})
-def handle_int(x):
-    return f"int: {x}"
-
-@sw  # Default catches everything
-def handle_other(x):
-    return f"other: {x}"
-
-# No error
-print(sw()(x="text"))  # other: text
+if "get_users" in sw._handlers:
+    users = sw("get_users")()
 ```
 
-### Handler Not Found by Name
+## Custom Aliases
 
-If you request a handler name that doesn't exist, you'll get a `KeyError`:
+Register handlers with custom names different from the function name:
+
+```python
+@sw("reset")
+def destroy_all_data():
+    """Dangerous operation - use with caution!"""
+    return "All data destroyed"
+
+@sw("clear")
+def remove_cache():
+    """Clear application cache."""
+    return "Cache cleared"
+
+# Call by alias
+result = sw("reset")()
+result = sw("clear")()
+```
+
+This is useful for:
+- User-facing command names
+- API endpoint mapping
+- Backward compatibility
+
+## Prefix Conventions
+
+When you have many related handlers, use a consistent prefix:
+
+```python
+storage = Switcher(
+    name='storage',
+    description='Storage backend dispatcher',
+    prefix='backend_'
+)
+
+@storage
+def backend_s3(bucket: str, key: str):
+    """Store file in AWS S3."""
+    return f"Stored in S3: {bucket}/{key}"
+
+@storage
+def backend_gcs(bucket: str, key: str):
+    """Store file in Google Cloud Storage."""
+    return f"Stored in GCS: {bucket}/{key}"
+
+@storage
+def backend_local(path: str):
+    """Store file locally."""
+    return f"Stored locally: {path}"
+
+# Access by short names (prefix automatically stripped)
+result = storage("s3")(bucket="my-bucket", key="file.txt")
+result = storage("gcs")(bucket="my-bucket", key="file.txt")
+result = storage("local")(path="/tmp/file.txt")
+```
+
+## Using Plugins
+
+SmartSwitch supports a powerful plugin system for extending functionality:
+
+### Logging Plugin
+
+Automatically log function entry, exit, and errors:
+
+```python
+from smartswitch import Switcher
+from smartswitch.plugins import LoggingPlugin
+
+api = Switcher()
+api.plug(LoggingPlugin(logger_name="api"))
+
+@api
+def process_payment(amount: float, currency: str):
+    """Process a payment transaction."""
+    # Plugin logs entry, exit, and any errors
+    return {"amount": amount, "currency": currency, "status": "completed"}
+
+result = api("process_payment")(amount=100.0, currency="USD")
+# Logs: "Calling process_payment with ..."
+# Logs: "process_payment returned ..."
+```
+
+### Database Plugin
+
+Inject database cursors and manage transactions:
+
+```python
+from smartswitch.plugins import DbOpPlugin
+
+class UserService:
+    def __init__(self, db):
+        self.db = db
+        self.api = Switcher()
+        self.api.plug(DbOpPlugin())
+
+    @property
+    def create_user(self):
+        @self.api
+        def _create_user(self, name: str, email: str, cursor=None, autocommit=True):
+            cursor.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
+            return cursor.lastrowid
+        return _create_user
+
+# Plugin automatically injects cursor and manages transaction
+service = UserService(db)
+user_id = service.create_user(service, name="Alice", email="alice@example.com")
+```
+
+### Custom Plugins
+
+Create your own plugins by inheriting from `BasePlugin`:
+
+```python
+from smartswitch import BasePlugin
+
+class TimingPlugin(BasePlugin):
+    """Measure execution time of handlers."""
+
+    def wrap_handler(self, switch, entry, call_next):
+        import time
+
+        def wrapper(*args, **kwargs):
+            start = time.time()
+            try:
+                result = call_next(*args, **kwargs)
+                elapsed = time.time() - start
+                print(f"{entry.name} took {elapsed:.3f}s")
+                return result
+            except Exception as e:
+                elapsed = time.time() - start
+                print(f"{entry.name} failed after {elapsed:.3f}s")
+                raise
+
+        return wrapper
+
+# Use custom plugin
+api = Switcher()
+api.plug(TimingPlugin())
+
+@api
+def slow_operation():
+    import time
+    time.sleep(1)
+    return "done"
+
+result = api("slow_operation")()
+# Prints: "slow_operation took 1.001s"
+```
+
+## Descriptor Protocol
+
+Switchers can be used as class attributes and work with the descriptor protocol:
+
+```python
+class APIServer:
+    handlers = Switcher()
+
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+@APIServer.handlers
+def get_status(self):
+    return {"url": self.base_url, "status": "running"}
+
+server = APIServer("https://api.example.com")
+status = server.handlers("get_status")(server)
+# → {"url": "https://api.example.com", "status": "running"}
+```
+
+## Inspecting Handlers
+
+List all registered handlers:
 
 ```python
 sw = Switcher()
 
 @sw
-def existing_handler(x):
-    return x
+def handler1(): pass
 
-try:
-    handler = sw('nonexistent')
-except KeyError as e:
-    print(f"Handler not found: {e}")
+@sw
+def handler2(): pass
+
+@sw("custom")
+def handler3(): pass
+
+# Check registered names
+print("handler1" in sw._handlers)  # True
+print("handler2" in sw._handlers)  # True
+print("custom" in sw._handlers)    # True
+print("handler3" in sw._handlers)  # False (registered as "custom")
+
+# List all handler names
+print(list(sw._handlers.keys()))
+# → ["handler1", "handler2", "custom"]
 ```
 
 ## Best Practices
 
-### 1. Use Descriptive Handler Names
+### 1. Use Descriptive Names
 
-Handler function names are used for lookup, so make them descriptive:
+Make handler names self-documenting:
 
 ```python
-# Good
-@sw(typerule={'user_input': str})
-def parse_user_input(user_input):
-    return user_input.strip().lower()
+# ✅ Good
+@sw
+def send_password_reset_email(user_id: int):
+    ...
 
-# Less clear
-@sw(typerule={'x': str})
-def f(x):
-    return x.strip().lower()
+# ❌ Bad
+@sw
+def handler1(id: int):
+    ...
 ```
 
-### 2. Document Rules with Docstrings
+### 2. Validate Inputs
 
-Add docstrings to explain what conditions trigger each handler:
+Always validate inputs in your handlers:
 
 ```python
-@sw(typerule={'value': int}, valrule=lambda value: 0 <= value <= 100)
-def validate_percentage(value):
+@sw
+def transfer_funds(from_account: int, to_account: int, amount: float):
+    if amount <= 0:
+        raise ValueError("Amount must be positive")
+    if from_account == to_account:
+        raise ValueError("Cannot transfer to same account")
+    # Process transfer...
+```
+
+### 3. Document Handlers
+
+Use docstrings to document what each handler does:
+
+```python
+@sw
+def calculate_shipping(weight: float, distance: float) -> float:
     """
-    Validates that value is a valid percentage (0-100).
+    Calculate shipping cost based on package weight and distance.
 
     Args:
-        value: Integer to validate
+        weight: Package weight in kilograms
+        distance: Shipping distance in kilometers
 
     Returns:
-        The validated percentage value
+        Shipping cost in USD
+
+    Raises:
+        ValueError: If weight or distance is negative
     """
-    return value
+    if weight < 0 or distance < 0:
+        raise ValueError("Weight and distance must be non-negative")
+    return weight * 0.5 + distance * 0.1
 ```
 
-### 3. Keep Value Rules Pure
+### 4. Group Related Handlers
 
-Value rules should be pure functions with no side effects:
-
-```python
-# Good - pure function
-@sw(valrule=lambda x: x > 0)
-def handle_positive(x):
-    return x
-
-# Bad - side effects in rule
-counter = []
-@sw(valrule=lambda x: (counter.append(x), True)[1])  # Don't do this!
-def handle_with_side_effects(x):
-    return x
-```
-
-### 4. Order Matters
-
-Register more specific rules before more general ones:
+Organize handlers by domain or feature:
 
 ```python
-sw = Switcher()
+# User management
+user_api = Switcher(name="users", prefix="user_")
 
-# Specific first
-@sw(typerule={'x': int}, valrule=lambda x: x < 0)
-def handle_negative(x):
-    return "negative"
+@user_api
+def user_create(name: str, email: str): ...
 
-# General second
-@sw(typerule={'x': int})
-def handle_any_int(x):
-    return "any int"
+@user_api
+def user_delete(user_id: int): ...
 
-# Default last
-@sw
-def handle_anything(x):
-    return "anything"
-```
+@user_api
+def user_update(user_id: int, **fields): ...
 
-### 5. Use Type Hints
+# Payment processing
+payment_api = Switcher(name="payments", prefix="payment_")
 
-Add type hints to your handlers for better IDE support:
+@payment_api
+def payment_process(amount: float): ...
 
-```python
-@sw(typerule={'text': str, 'count': int})
-def repeat_text(text: str, count: int) -> str:
-    return text * count
-```
-
-### 6. Group Related Handlers
-
-Keep related handlers together in your code:
-
-```python
-# String processors
-@sw(typerule={'data': str})
-def process_filename(data):
-    return Path(data)
-
-@sw(typerule={'data': str}, valrule=lambda data: data.startswith('http'))
-def process_url(data):
-    return URL(data)
-
-# Number processors
-@sw(typerule={'data': int})
-def process_integer(data):
-    return data
-
-@sw(typerule={'data': float})
-def process_float(data):
-    return round(data, 2)
-```
-
-## Advanced Patterns
-
-### Positional Arguments
-
-While named parameters (`x=5`) work best with SmartSwitch, you can also use positional arguments. SmartSwitch will map them to parameter names:
-
-```python
-sw = Switcher()
-
-@sw(typerule={'a': int, 'b': int})
-def add(a, b):
-    return a + b
-
-# Both work
-result = sw()(a=5, b=10)  # Named
-result = sw()(5, 10)      # Positional
-```
-
-### Mixed Arguments
-
-You can mix positional and keyword arguments:
-
-```python
-@sw(typerule={'x': int, 'y': int})
-def calculate(x, y):
-    return x + y
-
-result = sw()(5, y=10)  # Mixed - works!
+@payment_api
+def payment_refund(transaction_id: str): ...
 ```
 
 ## Next Steps
 
-- Explore [Examples](../examples/index.md) for real-world use cases
-- Check the [Best Practices Guide](../guide/best-practices.md) for production patterns
-- See the [API Reference](../api/switcher.md) for complete technical documentation
+- Learn about [Named Handlers](../guide/named-handlers.md) in depth
+- Explore the [Plugin System](../plugins/index.md)
+- Read [Best Practices](../guide/best-practices.md) for production usage
+- Check out [Real-World Examples](../examples/index.md)

@@ -54,20 +54,10 @@ sw = Switcher(prefix="handle_")
 def default_handler(x):
     return f"default: {x}"
 
-# Type rule
-@sw(typerule={'x': int})
-def handle_int(x):
-    return f"int: {x}"
-
-# Value rule
-@sw(valrule=lambda x: x > 0)
-def handle_positive(x):
-    return "positive"
-
-# Combined rules
-@sw(typerule={'x': int}, valrule=lambda x: x > 0)
-def handle_positive_int(x):
-    return "positive int"
+# Named handler
+@sw
+def handle_data(x):
+    return f"data: {x}"
 
 # Custom alias
 @sw('custom_name')
@@ -78,15 +68,15 @@ def my_handler(x):
 ### Using Handlers
 
 ```python
-# Automatic dispatch
-result = sw()(x=42)
-
 # Named handler access
-handler = sw('handle_int')
+handler = sw('handle_data')
 result = handler(x=42)
 
 # One-liner
-result = sw('handle_int')(x=42)
+result = sw('handle_data')(x=42)
+
+# Using custom alias
+result = sw('custom_name')(x=100)
 ```
 
 ### Descriptor Protocol
@@ -108,19 +98,19 @@ result = obj.dispatch('method')(x=5)  # "10 + 5"
 
 ## Type Annotations
 
-SmartSwitch supports full type checking:
+SmartSwitch supports full type checking with type hints:
 
 ```python
 from typing import Union
 
-@sw(typerule={'value': int | float})
+@sw
 def handle_number(value: Union[int, float]) -> str:
     return f"Number: {value}"
 ```
 
 ## See Also
 
-- [Type Rules Guide](../guide/typerules.md)
-- [Value Rules Guide](../guide/valrules.md)
 - [Named Handlers Guide](../guide/named-handlers.md)
+- [Plugin System](../plugins/index.md)
+- [Best Practices](../guide/best-practices.md)
 - [Examples](../examples/index.md)

@@ -193,7 +193,7 @@ print(response)  # → {"users": ["Alice", "Bob"]}
 
 - Learn more in the [Basic Usage Guide](basic.md)
 - See more examples in [Examples](../examples/index.md)
-- Check out the detailed guides: [Type Rules](../guide/typerules.md), [Value Rules](../guide/valrules.md), [Named Handlers](../guide/named-handlers.md)
+- Check out the detailed guides: [Named Handlers](../guide/named-handlers.md), [Plugin System](../plugins/index.md)
 
 ## Quick Reference
 

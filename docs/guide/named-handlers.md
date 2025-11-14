@@ -17,7 +17,7 @@ from smartswitch import Switcher
 
 sw = Switcher()
 
-@sw(typerule={'x': int})
+@sw
 def compute(x):
     return x * 2
 
@@ -42,7 +42,7 @@ For quick invocations, you can retrieve and call in one line:
 ```python
 sw = Switcher()
 
-@sw(typerule={'x': int})
+@sw
 def compute(x):
     return x * 2
 
@@ -76,29 +76,7 @@ assert sw('reset')() == "destroyed"
 - API endpoint mapping
 - Backward compatibility aliases
 
-## Explicit vs Automatic Dispatch
-
-SmartSwitch supports two dispatch modes:
-
-### 1. Automatic Dispatch (Rule-Based)
-
-```python
-sw = Switcher()
-
-@sw(typerule={'x': int})
-def handle_int(x):
-    return "int"
-
-@sw(typerule={'x': str})
-def handle_str(x):
-    return "str"
-
-# Automatic: rules determine the handler
-print(sw()(x=42))    # → "int"
-print(sw()(x="hi"))  # → "str"
-```
-
-### 2. Explicit Dispatch (Named)
+## Explicit Named Dispatch
 
 ```python
 sw = Switcher()
@@ -260,34 +238,6 @@ def handle_foo(x):
 assert 'custom_name' in sw._handlers
 assert 'foo' not in sw._handlers
 assert sw('custom_name')(x=5) == 5
-```
-
-<!-- test: test_complete.py::test_prefix_with_typerule -->
-
-### Prefix with Type Rules
-
-Prefix stripping works seamlessly with type rules:
-
-**From test**: [test_prefix_with_typerule](https://github.com/genropy/smartswitch/blob/main/tests/test_complete.py#L859-L877)
-
-```python
-sw = Switcher(prefix='cmd_')
-
-@sw(typerule={'x': int})
-def cmd_add(x):
-    return f"add: {x}"
-
-@sw(typerule={'x': str})
-def cmd_delete(x):
-    return f"delete: {x}"
-
-# Named registration works with rules
-assert 'cmd_add' in sw._handlers
-assert 'cmd_delete' in sw._handlers
-
-# Can access by name
-assert sw('cmd_add')(x=5) == "add: 5"
-assert sw('cmd_delete')(x="item") == "delete: item"
 ```
 
 ## Handler Registry
@@ -502,21 +452,13 @@ sw = Switcher()
 def explicit_action(x):
     return f"Explicit: {x}"
 
-# Rule-based handlers
-@sw(typerule={'x': int})
-def handle_int(x):
-    return f"Int: {x}"
+@sw
+def another_action(x):
+    return f"Another: {x}"
 
-@sw(typerule={'x': str})
-def handle_str(x):
-    return f"Str: {x}"
-
-# Explicit by name
+# Call by name
 print(sw('explicit_action')(x=10))  # → "Explicit: 10"
-
-# Automatic by rules
-print(sw()(x=10))   # → "Int: 10"
-print(sw()(x="hi")) # → "Str: hi"
+print(sw('another_action')(x=20))   # → "Another: 20"
 ```
 
 **Use Case:** Some handlers are invoked explicitly (admin commands), while others are dispatched automatically (request routing).
@@ -602,7 +544,7 @@ def create_user(): ...
 
 ## Next Steps
 
-- Learn about [Type Rules](typerules.md) for type-based dispatch
-- Explore [Value Rules](valrules.md) for condition-based dispatch
+- Explore [Plugin System](../plugins/index.md) for extending functionality
 - See [Best Practices](best-practices.md) for production usage patterns
 - Check [Real-World Examples](../examples/index.md) for practical use cases
+- Read the [API Reference](../api/switcher.md) for detailed documentation

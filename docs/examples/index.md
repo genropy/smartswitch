@@ -2,362 +2,433 @@
 
 Real-world examples of using SmartSwitch in various scenarios.
 
-## Basic Example
+## Command-Line Tool
 
-A simple demonstration of SmartSwitch basics:
+Build a CLI tool with subcommands:
 
 ```python
 from smartswitch import Switcher
+import sys
 
-sw = Switcher()
+cli = Switcher(name="mycli", prefix="cmd_")
 
-@sw(typerule={'data': str})
-def process_string(data):
-    return f"String: {data}"
+@cli
+def cmd_init(project_name: str):
+    """Initialize a new project."""
+    print(f"Initializing project: {project_name}")
+    return {"project": project_name, "status": "created"}
 
-@sw(typerule={'data': int})
-def process_int(data):
-    return f"Number: {data}"
+@cli
+def cmd_build(target: str = "production"):
+    """Build the project."""
+    print(f"Building for {target}...")
+    return {"target": target, "status": "built"}
 
-@sw(typerule={'data': list})
-def process_list(data):
-    return f"List with {len(data)} items"
+@cli
+def cmd_deploy(environment: str):
+    """Deploy to specified environment."""
+    print(f"Deploying to {environment}...")
+    return {"environment": environment, "status": "deployed"}
 
-@sw
-def process_other(data):
-    return f"Unknown: {type(data).__name__}"
+@cli
+def cmd_help():
+    """Show available commands."""
+    commands = list(cli._handlers.keys())
+    print("Available commands:")
+    for cmd in commands:
+        print(f"  - {cmd}")
+    return commands
 
-# Use it
-print(sw()(data="hello"))    # String: hello
-print(sw()(data=42))         # Number: 42
-print(sw()(data=[1,2,3]))    # List with 3 items
-print(sw()(data=3.14))       # Unknown: float
+# Usage
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        cli("help")()
+        sys.exit(1)
+
+    command = sys.argv[1]
+    args = sys.argv[2:]
+
+    try:
+        handler = cli(command)
+        result = handler(*args)
+        print(f"✓ Success: {result}")
+    except KeyError:
+        print(f"✗ Unknown command: {command}")
+        cli("help")()
+        sys.exit(1)
+```
+
+Run it:
+```bash
+$ python mycli.py init myproject
+Initializing project: myproject
+✓ Success: {'project': 'myproject', 'status': 'created'}
+
+$ python mycli.py build staging
+Building for staging...
+✓ Success: {'target': 'staging', 'status': 'built'}
 ```
 
 ## API Request Router
 
-Route HTTP requests based on method and path:
+Route HTTP requests using named handlers:
 
 ```python
 from smartswitch import Switcher
+from smartswitch.plugins import LoggingPlugin
 
-api = Switcher()
-
-@api(valrule=lambda method, path: method == 'GET' and path == '/users')
-def handle_list_users(method, path, data=None):
-    return {"action": "list_users"}
-
-@api(valrule=lambda method, path: method == 'POST' and path == '/users')
-def handle_create_user(method, path, data=None):
-    return {"action": "create_user", "data": data}
-
-@api(valrule=lambda method, path: method == 'GET' and path.startswith('/users/'))
-def handle_get_user(method, path, data=None):
-    user_id = path.split('/')[-1]
-    return {"action": "get_user", "id": user_id}
-
-@api(valrule=lambda method, path: method == 'DELETE' and path.startswith('/users/'))
-def handle_delete_user(method, path, data=None):
-    user_id = path.split('/')[-1]
-    return {"action": "delete_user", "id": user_id}
+api = Switcher(name="api", prefix="handle_")
+api.plug(LoggingPlugin(logger_name="api"))
 
 @api
-def handle_not_found(method, path, data=None):
-    return {"error": "Not Found", "status": 404}
+def handle_get_users():
+    """GET /users - List all users."""
+    return [
+        {"id": 1, "name": "Alice"},
+        {"id": 2, "name": "Bob"}
+    ]
 
-# Use it
-print(api()(method='GET', path='/users'))
-# {'action': 'list_users'}
+@api
+def handle_create_user(name: str, email: str):
+    """POST /users - Create new user."""
+    user_id = 123  # Generate ID
+    return {"id": user_id, "name": name, "email": email}
 
-print(api()(method='POST', path='/users', data={'name': 'Alice'}))
-# {'action': 'create_user', 'data': {'name': 'Alice'}}
+@api
+def handle_get_user(user_id: int):
+    """GET /users/:id - Get specific user."""
+    # Fetch from database
+    return {"id": user_id, "name": "Alice", "email": "alice@example.com"}
 
-print(api()(method='GET', path='/users/123'))
-# {'action': 'get_user', 'id': '123'}
+@api
+def handle_update_user(user_id: int, **updates):
+    """PATCH /users/:id - Update user."""
+    return {"id": user_id, **updates, "updated": True}
 
-print(api()(method='GET', path='/products'))
-# {'error': 'Not Found', 'status': 404}
+@api
+def handle_delete_user(user_id: int):
+    """DELETE /users/:id - Delete user."""
+    return {"id": user_id, "deleted": True}
+
+# Map routes to handlers
+ROUTES = {
+    ("GET", "/users"): "get_users",
+    ("POST", "/users"): "create_user",
+    ("GET", "/users/:id"): "get_user",
+    ("PATCH", "/users/:id"): "update_user",
+    ("DELETE", "/users/:id"): "delete_user",
+}
+
+def route_request(method: str, path: str, data: dict = None):
+    """Route HTTP request to appropriate handler."""
+    handler_name = ROUTES.get((method, path))
+    if not handler_name:
+        return {"error": "Not found"}, 404
+
+    handler = api(handler_name)
+    result = handler(**data) if data else handler()
+    return result, 200
+
+# Usage
+result, status = route_request("GET", "/users")
+print(result)  # [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+
+result, status = route_request("POST", "/users", {"name": "Charlie", "email": "charlie@example.com"})
+print(result)  # {"id": 123, "name": "Charlie", "email": "charlie@example.com"}
 ```
 
-## Data Validation
+## Plugin System Integration
 
-Validate different types of input data:
+Create a modular application using plugins:
 
 ```python
 from smartswitch import Switcher
+from smartswitch.plugins import LoggingPlugin
 
-validator = Switcher()
+class Application:
+    def __init__(self):
+        self.handlers = Switcher(name="app")
+        self.handlers.plug(LoggingPlugin(logger_name="app"))
+        self._setup_handlers()
 
-# Email validation
-@validator(typerule={'value': str},
-           valrule=lambda value: '@' in value and '.' in value.split('@')[1])
-def validate_email(value):
-    return {"valid": True, "type": "email", "value": value}
+    def _setup_handlers(self):
+        """Register core handlers."""
+        @self.handlers
+        def startup():
+            print("Application starting...")
+            return {"status": "started"}
 
-# Phone number validation (simple)
-@validator(typerule={'value': str},
-           valrule=lambda value: value.replace('-', '').replace(' ', '').isdigit())
-def validate_phone(value):
-    return {"valid": True, "type": "phone", "value": value}
+        @self.handlers
+        def shutdown():
+            print("Application shutting down...")
+            return {"status": "stopped"}
 
-# Integer in range
-@validator(typerule={'value': int},
-           valrule=lambda value: 0 <= value <= 100)
-def validate_percentage(value):
-    return {"valid": True, "type": "percentage", "value": value}
+        @self.handlers
+        def health_check():
+            return {"status": "healthy", "uptime": 100}
 
-# Positive number
-@validator(typerule={'value': int | float},
-           valrule=lambda value: value > 0)
-def validate_positive_number(value):
-    return {"valid": True, "type": "positive_number", "value": value}
+    def register_plugin(self, plugin_name: str, handler_func):
+        """Allow plugins to register handlers."""
+        self.handlers._handlers[plugin_name] = handler_func
 
-# Default - invalid
-@validator
-def validate_unknown(value):
-    return {"valid": False, "type": "unknown", "value": value}
+    def execute(self, command: str, **kwargs):
+        """Execute a command."""
+        if command not in self.handlers._handlers:
+            return {"error": f"Unknown command: {command}"}
+        return self.handlers(command)(**kwargs)
 
-# Use it
-print(validator()(value="user@example.com"))
-# {'valid': True, 'type': 'email', 'value': 'user@example.com'}
+# Create application
+app = Application()
 
-print(validator()(value="555-1234"))
-# {'valid': True, 'type': 'phone', 'value': '555-1234'}
+# Register plugin handlers dynamically
+def email_plugin():
+    """Plugin: Send emails."""
+    return {"plugin": "email", "status": "email sent"}
 
-print(validator()(value=75))
-# {'valid': True, 'type': 'percentage', 'value': 75}
+def sms_plugin():
+    """Plugin: Send SMS."""
+    return {"plugin": "sms", "status": "sms sent"}
 
-print(validator()(value=150))
-# {'valid': True, 'type': 'positive_number', 'value': 150}
+app.register_plugin("send_email", email_plugin)
+app.register_plugin("send_sms", sms_plugin)
 
-print(validator()(value=[1, 2, 3]))
-# {'valid': False, 'type': 'unknown', 'value': [1, 2, 3]}
+# Use application
+print(app.execute("startup"))       # Logs + returns {"status": "started"}
+print(app.execute("health_check"))  # {"status": "healthy", "uptime": 100}
+print(app.execute("send_email"))    # {"plugin": "email", "status": "email sent"}
+print(app.execute("shutdown"))      # Logs + returns {"status": "stopped"}
 ```
 
-## Payment Processing
+## Database Operations
 
-Handle different payment methods with different rules:
+Use DbOpPlugin for automatic cursor injection:
 
 ```python
 from smartswitch import Switcher
+from smartswitch.plugins import DbOpPlugin
+import sqlite3
 
-payments = Switcher()
+class UserRepository:
+    def __init__(self, db_path: str):
+        self.db = sqlite3.connect(db_path)
+        self.api = Switcher()
+        self.api.plug(DbOpPlugin())
 
-# Crypto payments over $1000
-@payments(typerule={'method': str, 'amount': int | float},
-          valrule=lambda method, amount: method == 'crypto' and amount > 1000)
-def process_crypto_large(method, amount, details):
-    return {
-        "processor": "crypto_large",
-        "amount": amount,
-        "fee": amount * 0.01,  # 1% fee
-        "details": details
-    }
+    @property
+    def create_user(self):
+        @self.api
+        def _create(self, name: str, email: str, cursor=None, autocommit=True):
+            """Create new user."""
+            cursor.execute(
+                "INSERT INTO users (name, email) VALUES (?, ?)",
+                (name, email)
+            )
+            return {"id": cursor.lastrowid, "name": name, "email": email}
+        return _create
 
-# Regular crypto payments
-@payments(typerule={'method': str},
-          valrule=lambda method, **kw: method == 'crypto')
-def process_crypto_regular(method, amount, details):
-    return {
-        "processor": "crypto_regular",
-        "amount": amount,
-        "fee": amount * 0.02,  # 2% fee
-        "details": details
-    }
+    @property
+    def find_user(self):
+        @self.api
+        def _find(self, user_id: int, cursor=None):
+            """Find user by ID."""
+            cursor.execute("SELECT id, name, email FROM users WHERE id = ?", (user_id,))
+            row = cursor.fetchone()
+            if row:
+                return {"id": row[0], "name": row[1], "email": row[2]}
+            return None
+        return _find
 
-# Credit card payments
-@payments(valrule=lambda method, **kw: method == 'credit_card')
-def process_credit_card(method, amount, details):
-    return {
-        "processor": "credit_card",
-        "amount": amount,
-        "fee": amount * 0.03,  # 3% fee
-        "details": details
-    }
+    @property
+    def delete_user(self):
+        @self.api
+        def _delete(self, user_id: int, cursor=None, autocommit=True):
+            """Delete user by ID."""
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            return {"deleted": user_id, "rows": cursor.rowcount}
+        return _delete
 
-# Bank transfer
-@payments(valrule=lambda method, **kw: method == 'bank_transfer')
-def process_bank_transfer(method, amount, details):
-    return {
-        "processor": "bank_transfer",
-        "amount": amount,
-        "fee": 0,  # No fee
-        "details": details
-    }
+# Setup database
+conn = sqlite3.connect(":memory:")
+conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
+conn.commit()
 
-# Default - unsupported
-@payments
-def process_unsupported(method, amount, details):
-    return {"error": "Unsupported payment method", "method": method}
+# Use repository
+repo = UserRepository(":memory:")
+repo.db = conn  # Share connection
 
-# Use it
-print(payments()(method='crypto', amount=2000, details={'wallet': '0x123'}))
-# {'processor': 'crypto_large', 'amount': 2000, 'fee': 20.0, ...}
+# Plugin handles cursor and transaction automatically
+user = repo.create_user(repo, name="Alice", email="alice@example.com")
+print(user)  # {"id": 1, "name": "Alice", "email": "alice@example.com"}
 
-print(payments()(method='crypto', amount=500, details={'wallet': '0x456'}))
-# {'processor': 'crypto_regular', 'amount': 500, 'fee': 10.0, ...}
+found = repo.find_user(repo, user_id=1)
+print(found)  # {"id": 1, "name": "Alice", "email": "alice@example.com"}
 
-print(payments()(method='credit_card', amount=100, details={'card': '****1234'}))
-# {'processor': 'credit_card', 'amount': 100, 'fee': 3.0, ...}
+deleted = repo.delete_user(repo, user_id=1)
+print(deleted)  # {"deleted": 1, "rows": 1}
+```
 
-print(payments()(method='paypal', amount=50, details={}))
-# {'error': 'Unsupported payment method', 'method': 'paypal'}
+## Event Handler System
+
+Build an event-driven system:
+
+```python
+from smartswitch import Switcher
+from smartswitch.plugins import LoggingPlugin
+from typing import Any
+import json
+
+class EventBus:
+    def __init__(self):
+        self.handlers = Switcher(name="events", prefix="on_")
+        self.handlers.plug(LoggingPlugin(logger_name="events"))
+
+    def on(self, event_name: str):
+        """Decorator to register event handlers."""
+        def decorator(func):
+            # Register with 'on_' prefix
+            self.handlers._handlers[f"on_{event_name}"] = func
+            return func
+        return decorator
+
+    def emit(self, event_name: str, data: Any = None):
+        """Emit an event to all registered handlers."""
+        handler_name = f"on_{event_name}"
+        if handler_name in self.handlers._handlers:
+            handler = self.handlers(handler_name)
+            return handler(data) if data else handler()
+        else:
+            print(f"No handler for event: {event_name}")
+            return None
+
+# Create event bus
+events = EventBus()
+
+# Register event handlers
+@events.on("user_registered")
+def handle_user_registered(user_data):
+    """Handle new user registration."""
+    print(f"Welcome email sent to {user_data['email']}")
+    return {"email_sent": True}
+
+@events.on("order_placed")
+def handle_order_placed(order_data):
+    """Handle new order."""
+    print(f"Processing order {order_data['order_id']}")
+    print(f"Total: ${order_data['total']}")
+    return {"order_id": order_data["order_id"], "status": "processing"}
+
+@events.on("payment_received")
+def handle_payment_received(payment_data):
+    """Handle payment confirmation."""
+    print(f"Payment received: ${payment_data['amount']}")
+    return {"payment_id": payment_data["transaction_id"], "confirmed": True}
+
+# Emit events
+events.emit("user_registered", {
+    "user_id": 123,
+    "name": "Alice",
+    "email": "alice@example.com"
+})
+# Output: Welcome email sent to alice@example.com
+
+events.emit("order_placed", {
+    "order_id": "ORD-456",
+    "total": 99.99,
+    "items": ["item1", "item2"]
+})
+# Output: Processing order ORD-456
+#         Total: $99.99
+
+events.emit("payment_received", {
+    "transaction_id": "TXN-789",
+    "amount": 99.99
+})
+# Output: Payment received: $99.99
 ```
 
 ## State Machine
 
-Implement a simple state machine for order processing:
+Implement a state machine for order processing:
 
 ```python
 from smartswitch import Switcher
+from enum import Enum
 
-order_processor = Switcher()
+class OrderState(Enum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
 
-@order_processor(valrule=lambda state, action: state == 'pending' and action == 'confirm')
-def confirm_order(state, action, order_id):
-    return {
-        "order_id": order_id,
-        "old_state": state,
-        "new_state": "confirmed",
-        "message": "Order confirmed"
-    }
+class OrderStateMachine:
+    def __init__(self, order_id: str):
+        self.order_id = order_id
+        self.state = OrderState.PENDING
+        self.actions = Switcher(name="order_actions", prefix="action_")
+        self._setup_actions()
 
-@order_processor(valrule=lambda state, action: state == 'confirmed' and action == 'ship')
-def ship_order(state, action, order_id):
-    return {
-        "order_id": order_id,
-        "old_state": state,
-        "new_state": "shipped",
-        "message": "Order shipped"
-    }
+    def _setup_actions(self):
+        """Setup state transition actions."""
+        @self.actions
+        def action_confirm():
+            if self.state == OrderState.PENDING:
+                self.state = OrderState.CONFIRMED
+                return {"order_id": self.order_id, "state": self.state.value}
+            raise ValueError(f"Cannot confirm order in state: {self.state.value}")
 
-@order_processor(valrule=lambda state, action: state == 'shipped' and action == 'deliver')
-def deliver_order(state, action, order_id):
-    return {
-        "order_id": order_id,
-        "old_state": state,
-        "new_state": "delivered",
-        "message": "Order delivered"
-    }
+        @self.actions
+        def action_ship():
+            if self.state == OrderState.CONFIRMED:
+                self.state = OrderState.SHIPPED
+                return {"order_id": self.order_id, "state": self.state.value}
+            raise ValueError(f"Cannot ship order in state: {self.state.value}")
 
-@order_processor(valrule=lambda state, action: action == 'cancel')
-def cancel_order(state, action, order_id):
-    return {
-        "order_id": order_id,
-        "old_state": state,
-        "new_state": "cancelled",
-        "message": "Order cancelled"
-    }
+        @self.actions
+        def action_deliver():
+            if self.state == OrderState.SHIPPED:
+                self.state = OrderState.DELIVERED
+                return {"order_id": self.order_id, "state": self.state.value}
+            raise ValueError(f"Cannot deliver order in state: {self.state.value}")
 
-@order_processor
-def handle_invalid_transition(state, action, order_id):
-    return {
-        "order_id": order_id,
-        "error": f"Invalid transition: {state} -> {action}"
-    }
+        @self.actions
+        def action_cancel():
+            if self.state in (OrderState.PENDING, OrderState.CONFIRMED):
+                self.state = OrderState.CANCELLED
+                return {"order_id": self.order_id, "state": self.state.value}
+            raise ValueError(f"Cannot cancel order in state: {self.state.value}")
 
-# Use it
-result = order_processor()(state='pending', action='confirm', order_id='ORD-123')
-print(result)
-# {'order_id': 'ORD-123', 'old_state': 'pending', 'new_state': 'confirmed', ...}
+    def transition(self, action: str):
+        """Execute state transition."""
+        try:
+            handler = self.actions(action)
+            return handler()
+        except KeyError:
+            raise ValueError(f"Unknown action: {action}")
 
-result = order_processor()(state='confirmed', action='ship', order_id='ORD-123')
-print(result)
-# {'order_id': 'ORD-123', 'old_state': 'confirmed', 'new_state': 'shipped', ...}
+# Use state machine
+order = OrderStateMachine("ORD-123")
 
-result = order_processor()(state='pending', action='ship', order_id='ORD-456')
-print(result)
-# {'order_id': 'ORD-456', 'error': 'Invalid transition: pending -> ship'}
+print(order.state)  # OrderState.PENDING
+
+result = order.transition("confirm")
+print(result)  # {'order_id': 'ORD-123', 'state': 'confirmed'}
+
+result = order.transition("ship")
+print(result)  # {'order_id': 'ORD-123', 'state': 'shipped'}
+
+result = order.transition("deliver")
+print(result)  # {'order_id': 'ORD-123', 'state': 'delivered'}
+
+# Invalid transitions raise errors
+try:
+    order.transition("cancel")  # Can't cancel after delivery
+except ValueError as e:
+    print(f"Error: {e}")  # Error: Cannot cancel order in state: delivered
 ```
 
-## Command Pattern
+## Next Steps
 
-Implement an undo/redo system:
-
-```python
-from smartswitch import Switcher
-
-commands = Switcher()
-
-# Document editing commands
-@commands
-def insert_text(doc, pos, text):
-    """Insert text at position."""
-    doc['content'] = doc['content'][:pos] + text + doc['content'][pos:]
-    return {
-        'undo': 'delete_text',
-        'args': (doc, pos, len(text))
-    }
-
-@commands
-def delete_text(doc, pos, length):
-    """Delete text from position."""
-    deleted = doc['content'][pos:pos+length]
-    doc['content'] = doc['content'][:pos] + doc['content'][pos+length:]
-    return {
-        'undo': 'insert_text',
-        'args': (doc, pos, deleted)
-    }
-
-# Use it
-doc = {'content': 'Hello World'}
-
-# Execute command
-cmd = commands('insert_text')
-undo_info = cmd(doc, 5, ' Beautiful')
-print(doc['content'])  # Hello Beautiful World
-
-# Undo using returned info
-undo_cmd = commands(undo_info['undo'])
-undo_cmd(*undo_info['args'])
-print(doc['content'])  # Hello World
-```
-
-## File Format Parser
-
-Parse different file formats based on extension and content:
-
-```python
-from smartswitch import Switcher
-import json
-
-parser = Switcher()
-
-@parser(typerule={'filepath': str},
-        valrule=lambda filepath: filepath.endswith('.json'))
-def parse_json(filepath):
-    with open(filepath, 'r') as f:
-        return {"type": "json", "data": json.load(f)}
-
-@parser(typerule={'filepath': str},
-        valrule=lambda filepath: filepath.endswith('.txt'))
-def parse_text(filepath):
-    with open(filepath, 'r') as f:
-        return {"type": "text", "data": f.read()}
-
-@parser(typerule={'filepath': str},
-        valrule=lambda filepath: filepath.endswith('.csv'))
-def parse_csv(filepath):
-    with open(filepath, 'r') as f:
-        lines = f.readlines()
-        return {"type": "csv", "data": [line.strip().split(',') for line in lines]}
-
-@parser
-def parse_unknown(filepath):
-    return {"type": "unknown", "error": f"Unsupported file type: {filepath}"}
-
-# Use it (assuming files exist)
-# result = parser()(filepath='data.json')
-# result = parser()(filepath='document.txt')
-# result = parser()(filepath='data.csv')
-```
-
-## More Examples Coming Soon
-
-- Plugin systems
-- Event handlers
-- Strategy pattern implementation
-- Data transformation pipelines
-- Multi-tenant request routing
-
-For more patterns and techniques, see the [Basic Usage Guide](../user-guide/basic.md).
+- Explore the [Plugin System](../plugins/index.md) for advanced customization
+- See [Best Practices](../guide/best-practices.md) for production patterns
+- Check the [API Reference](../api/switcher.md) for detailed documentation
