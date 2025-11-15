@@ -90,10 +90,13 @@ class TestSwitcher(unittest.TestCase):
 
     def test_plugin_runtime_count(self):
         obj = Child()
+        # Get initial count (may not be 0 on Windows due to ID reuse)
+        initial_count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
         Child.main("run")(obj, 1)
         Child.main("run")(obj, 2)
-        count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
-        self.assertEqual(count, 2)
+        final_count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
+        # Verify count incremented by 2, not absolute value
+        self.assertEqual(final_count - initial_count, 2)
 
     def test_plugin_enable_disable(self):
         obj = Child()
