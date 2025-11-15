@@ -266,9 +266,9 @@ class TestPydanticEdgeCases:
 class TestPydanticPluginStacking:
     """Test Pydantic plugin with other plugins."""
 
-    def test_pydantic_with_logging(self):
+    def test_pydantic_with_logging(self, capsys):
         """Test combining Pydantic validation with logging."""
-        sw = Switcher().plug("logging", mode="silent").plug("pydantic")
+        sw = Switcher().plug("logging", mode="print,after").plug("pydantic")
 
         @sw
         def add(x: int, y: int) -> int:
@@ -277,29 +277,25 @@ class TestPydanticPluginStacking:
         result = sw("add")(3, 4)
         assert result == 7
 
-        # Check logging captured the call
-        history = sw.logging.history()
-        assert len(history) == 1
-        assert history[0]["result"] == 7
+        # Check logging produced output
+        captured = capsys.readouterr()
+        assert "← add() → 7" in captured.out
 
-    def test_validation_error_logged(self):
-        """Test that validation errors interrupt execution before logging."""
-        sw = Switcher().plug("logging", mode="silent").plug("pydantic")
+    def test_validation_error_logged(self, capsys):
+        """Test that validation errors are logged by LoggingPlugin."""
+        sw = Switcher().plug("logging", mode="print,after").plug("pydantic")
 
         @sw
         def strict_func(x: int) -> int:
             return x * 2
 
-        # Trigger validation error - should raise before logging can capture it
+        # Trigger validation error - should be logged by LoggingPlugin
         with pytest.raises(ValidationError):
             sw("strict_func")("invalid")
 
-        # Note: LoggingPlugin captures exceptions including ValidationError
-        # This is useful for debugging - failed calls are logged with exception info
-        history = sw.logging.history()
-        assert len(history) == 1  # Call is logged even when validation fails
-        assert "exception" in history[0]
-        assert history[0]["exception"]["type"] == "ValidationError"
+        # LoggingPlugin catches and logs the exception before re-raising
+        captured = capsys.readouterr()
+        assert "✗ strict_func() raised ValidationError" in captured.out
 
 
 class TestPydanticPluginConfigure:

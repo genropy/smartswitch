@@ -98,44 +98,6 @@ class TestMultipleInstances(unittest.TestCase):
         self.assertEqual(count1, 0)  # Plugin was disabled
         self.assertEqual(count2, 1)  # Plugin was enabled
 
-    def test_logging_history_per_instance(self):
-        """Test that logging history is separate per instance."""
-
-        class DataStore:
-            ops = Switcher("ops")
-            ops.plug("logging", mode="silent")
-
-            def __init__(self, store_name):
-                self.store_name = store_name
-
-            @ops
-            def save(self, data):
-                return f"{self.store_name}:saved:{data}"
-
-            @ops
-            def load(self, key):
-                return f"{self.store_name}:loaded:{key}"
-
-        store_a = DataStore("store_a")
-        store_b = DataStore("store_b")
-
-        # store_a operations
-        DataStore.ops("save")(store_a, "data1")
-        DataStore.ops("load")(store_a, "key1")
-
-        # store_b operations
-        DataStore.ops("save")(store_b, "data2")
-
-        # Get history - should be global but we can filter by result
-        history = DataStore.ops.logging.history()
-
-        # Count operations by store
-        store_a_ops = [h for h in history if "store_a" in str(h.get("result", ""))]
-        store_b_ops = [h for h in history if "store_b" in str(h.get("result", ""))]
-
-        self.assertEqual(len(store_a_ops), 2)  # save + load
-        self.assertEqual(len(store_b_ops), 1)  # save only
-
     def test_custom_runtime_data_per_instance(self):
         """Test that custom runtime data is isolated per instance."""
 

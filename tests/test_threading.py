@@ -209,7 +209,8 @@ class TestThreadSafety(unittest.TestCase):
 
         class Service:
             ops = Switcher("ops")
-            ops.plug("logging", mode="silent", time=True)
+            # Use print mode - new LoggingPlugin doesn't collect history
+            ops.plug("logging", mode="print,after,time")
 
             @ops
             def process(self, data):
@@ -217,11 +218,17 @@ class TestThreadSafety(unittest.TestCase):
                 return f"processed:{data}"
 
         service = Service()
+        results = []
+        errors = []
 
         def worker(worker_id, count):
             """Worker that processes items."""
-            for i in range(count):
-                Service.ops("process")(service, f"worker-{worker_id}-item-{i}")
+            try:
+                for i in range(count):
+                    result = Service.ops("process")(service, f"worker-{worker_id}-item-{i}")
+                    results.append(result)
+            except Exception as e:
+                errors.append(e)
 
         # Start multiple threads
         threads = []
@@ -234,18 +241,15 @@ class TestThreadSafety(unittest.TestCase):
         for t in threads:
             t.join()
 
-        # Check logging history
-        history = Service.ops.logging.history()
+        # Verify no errors occurred
+        self.assertEqual(len(errors), 0, f"Errors occurred: {errors}")
 
-        # Should have 15 entries (5 workers * 3 calls each)
-        self.assertEqual(len(history), 15)
+        # Should have 15 results (5 workers * 3 calls each)
+        self.assertEqual(len(results), 15)
 
-        # Verify all entries have required fields
-        for entry in history:
-            self.assertIn("handler", entry)
-            self.assertIn("result", entry)
-            self.assertIn("elapsed", entry)
-            self.assertEqual(entry["handler"], "process")
+        # Verify all results are correct
+        for result in results:
+            self.assertTrue(result.startswith("processed:worker-"))
 
     def test_race_condition_runtime_data(self):
         """Test that runtime data updates don't have race conditions."""
