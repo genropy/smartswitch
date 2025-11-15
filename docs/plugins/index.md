@@ -18,7 +18,7 @@ Plugins wrap handlers to add cross-cutting concerns like:
 from smartswitch import Switcher
 
 # Enable built-in logging plugin
-sw = Switcher().plug("logging", mode="silent")
+sw = Switcher().plug("logging", mode="print")
 
 @sw
 def my_handler(x: int) -> int:
@@ -28,7 +28,6 @@ def my_handler(x: int) -> int:
 result = sw("my_handler")(5)
 
 # Query history
-history = sw.logging.history()
 print(history[0])  # {'handler': 'my_handler', 'result': 10, ...}
 ```
 

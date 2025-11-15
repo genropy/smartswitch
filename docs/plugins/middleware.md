@@ -60,10 +60,9 @@ Let's dissect the LoggingPlugin in extreme detail to understand every aspect of 
 
 ```python
 class LoggingPlugin:
-    # Plugin name for attribute access: sw.logging.history()
     plugin_name = "logging"
 
-    def __init__(self, mode='silent', time=True, max_history=10000, logger=None):
+    def __init__(self, mode='print', time=True, max_history=10000, logger=None):
         """
         Plugin configuration (happens ONCE when plugin is created).
 
@@ -455,7 +454,7 @@ When multiple plugins are registered:
 
 ```python
 sw = (Switcher()
-      .plug('logging', mode='silent', time=True)
+      .plug('logging', mode='print,after,time')
       .plug('metrics')
       .plug('cache'))
 
@@ -539,10 +538,8 @@ The plugin name becomes the attribute for accessing it:
 
 ```python
 # Plugin with plugin_name = "logging"
-sw.logging.history()      # ✅ Clear: accessing logging functionality
 
 # Plugin with plugin_name = "smartswitch-logger"
-sw.smartswitch-logger.history()  # ❌ Redundant: we know it's SmartSwitch!
 ```
 
 ### External Package Naming
@@ -710,7 +707,7 @@ dev_sw = Switcher().plug('logging', mode='verbose')
 
 # Production
 prod_sw = (Switcher()
-           .plug('logging', mode='silent')
+           .plug('logging', mode='print')
            .plug(PrometheusPlugin())
            .plug('cache'))
 ```

@@ -102,7 +102,7 @@ Add logging to track all handler calls:
 from smartswitch import Switcher
 
 # Create switcher with logging plugin
-sw = Switcher().plug('logging', mode='silent', time=True)
+sw = Switcher().plug('logging', mode='print,after,time')
 
 @sw
 def my_handler(x):
@@ -112,7 +112,6 @@ def my_handler(x):
 result = sw('my_handler')(5)  # → 10
 
 # Access plugin to analyze history
-history = sw.logging.history()
 print(history)  # → [{'handler': 'my_handler', 'args': (5,), 'result': 10, ...}]
 
 # Find slow operations

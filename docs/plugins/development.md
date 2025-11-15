@@ -324,11 +324,9 @@ The `plugin_name` becomes the attribute for accessing the plugin:
 ```python
 # Good naming
 sw = Switcher().plug('logging')
-sw.logging.history()           # ✅ Reads naturally
 
 # Bad naming (redundant)
 sw = Switcher().plug('smartswitch-logger')
-sw.smartswitch-logger.history()  # ❌ We know it's SmartSwitch!
 ```
 
 ### External Package Naming
@@ -567,7 +565,7 @@ Plugins can be chained together:
 
 ```python
 sw = (Switcher()
-      .plug('logging', mode='silent')
+      .plug('logging', mode='print')
       .plug(AsyncPlugin())
       .plug(CallCounterPlugin()))
 
@@ -581,7 +579,6 @@ async def my_handler(x):
 # 3. CallCounterPlugin counts the call
 
 result = sw('my_handler')(5)
-print(sw.logging.history())  # From logging plugin
 print(sw.counter.get_count('my_handler'))  # From counter plugin
 ```
 

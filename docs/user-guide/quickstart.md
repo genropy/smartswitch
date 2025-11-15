@@ -151,26 +151,17 @@ for child in api.main._children.values():
 from smartswitch import Switcher
 
 # Add logging plugin
-sw = Switcher().plug('logging', mode='silent', time=True)
+sw = Switcher().plug('logging', mode='print,after,time')
 
 @sw
 def calculate(x, y):
     return x + y
 
-# Use normally
+# Use normally - logs automatically
 result = sw('calculate')(10, 5)  # → 15
-
-# Access plugin to inspect history
-history = sw.logging.history()
-print(history)
-# → [{'handler': 'calculate', 'args': (10, 5), 'result': 15, 'duration': 0.001, ...}]
-
-# Analyze performance
-slowest = sw.logging.history(slowest=3)
-errors = sw.logging.history(only_errors=True)
-
-# Clear history
-sw.logging.clear()
+# Output:
+# → calculate(10, 5)
+# ← calculate() → 15 (0.0001s)
 ```
 
 **Why plugins:**
@@ -215,7 +206,7 @@ from smartswitch import Switcher
 
 # Chain plugins - they execute in order
 sw = (Switcher()
-      .plug('logging', mode='silent')
+      .plug('logging', mode='print')
       .plug(ValidationPlugin())
       .plug(CachePlugin(ttl=300)))
 
@@ -242,7 +233,7 @@ Combining both patterns for a practical application:
 from smartswitch import Switcher
 
 # Create API with logging
-api = Switcher(name="api").plug('logging', mode='silent', time=True)
+api = Switcher(name="api").plug('logging', mode='print,after,time')
 
 @api('list_users')
 def get_users(page=1):
@@ -323,7 +314,7 @@ sw = Switcher(name="api", prefix="api_")  # with name and prefix
 sw = Switcher(parent=parent_sw)  # with parent
 
 # Add plugins
-sw.plug('logging', mode='silent', time=True)
+sw.plug('logging', mode='print,after,time')
 sw.plug(CustomPlugin(config="value"))
 
 # Register handlers
@@ -339,8 +330,8 @@ result = sw('custom_alias')(arg)
 result = parent_sw('child.handler')(arg)  # hierarchical
 
 # Access plugins
-sw.plugin('logging').history()
-sw.logging.history()  # shorthand via attribute
+sw.plugin('logging')  # Get plugin instance
+sw.logging  # shorthand via attribute
 
 # Introspection
 sw._methods  # dict of registered handlers

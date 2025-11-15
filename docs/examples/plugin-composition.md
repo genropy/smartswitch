@@ -17,7 +17,7 @@ SmartSwitch includes a built-in logging plugin accessible via `.plug("logging")`
 from smartswitch import Switcher
 
 # Create switcher with logging
-api = Switcher(name="api").plug("logging", mode="silent", time=True)
+api = Switcher(name="api").plug("logging", mode="print,after,time")
 
 @api
 def get_user(user_id):
@@ -34,7 +34,7 @@ api("get_user")(123)
 api("get_posts")(123)
 
 # Query history
-history = api.logging.history()
+# Logs output automatically
 print(f"Total calls: {len(history)}")
 # → Total calls: 2
 
@@ -115,7 +115,7 @@ from smartswitch import Switcher
 
 # Create switcher with BOTH plugins
 api = (Switcher(name="api")
-       .plug("logging", mode="silent", time=True)  # Built-in
+       .plug("logging", mode="print,after,time")  # Built-in
        .plug(AsyncPlugin()))                        # External
 
 # Sync handler
@@ -158,7 +158,7 @@ print(f"Remote user: {user_remote['name']}")
 print(f"Posts: {len(posts)} posts")
 
 # Logging plugin tracked ALL calls (sync and async)
-history = api.logging.history()
+# Logs output automatically
 print(f"\nTotal API calls: {len(history)}")
 # → Total API calls: 3
 
@@ -197,7 +197,7 @@ Plugins are applied in registration order:
 ```python
 # Order 1: Logging wraps async
 api1 = (Switcher()
-        .plug("logging", mode="silent", time=True)  # Outer wrapper
+        .plug("logging", mode="print,after,time")  # Outer wrapper
         .plug(AsyncPlugin()))                        # Inner wrapper
 
 # Execution flow for async handler:
@@ -245,7 +245,7 @@ print(f"Slow endpoints (>500ms): {len(slow_endpoints)}")
 ```python
 # Job processor with logging
 jobs = (Switcher(name="jobs")
-        .plug("logging", mode="silent", time=True, max_history=1000)
+        .plug("logging", mode="print", time=True, max_history=1000)
         .plug(AsyncPlugin()))
 
 @jobs
@@ -282,7 +282,7 @@ if len(errors) > 10:
 ```python
 # Test suite with detailed logging
 tests = (Switcher(name="tests")
-         .plug("logging", mode="silent", time=True)
+         .plug("logging", mode="print,after,time")
          .plug(AsyncPlugin()))
 
 @tests
@@ -299,7 +299,7 @@ tests("test_api_endpoint")("/posts", 200)
 tests("test_api_endpoint")("/invalid", 404)
 
 # Analyze test results
-history = tests.logging.history()
+# Plugin logs test executions automatically
 passed = [h for h in history if 'exception' not in h]
 failed = [h for h in history if 'exception' in h]
 

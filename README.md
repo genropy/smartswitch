@@ -147,25 +147,27 @@ Extend SmartSwitch functionality with plugins:
 from smartswitch import Switcher
 
 # Create switcher with logging plugin
-sw = Switcher().plug('logging', mode='silent', time=True)
+sw = Switcher().plug('logging', mode='print,after,time')
 
 @sw
 def my_handler(x):
     return x * 2
 
-# Use handler
+# Use handler - logs output automatically
 result = sw('my_handler')(5)  # → 10
+# Output: ← my_handler() → 10 (0.0001s)
 
-# Access plugin via attribute
-history = sw.logging.history()
-print(history)  # → [{'handler': 'my_handler', 'args': (5,), 'result': 10, ...}]
+# Use before+after for debugging
+sw_debug = Switcher().plug('logging', mode='print,before,after')
 
-# Analyze performance
-slowest = sw.logging.history(slowest=5)
-errors = sw.logging.history(only_errors=True)
+@sw_debug
+def process(data):
+    return f"Processed: {data}"
 
-# Clear history
-sw.logging.clear()
+sw_debug('process')("test")
+# Output:
+# → process('test')
+# ← process() → Processed: test
 ```
 
 ### Creating Custom Plugins
@@ -202,7 +204,7 @@ from smartswitch import Switcher
 from my_plugins import CachePlugin, MetricsPlugin
 
 sw = (Switcher()
-      .plug('logging', mode='silent')
+      .plug('logging', mode='print,after,time')
       .plug(CachePlugin(ttl=300))
       .plug(MetricsPlugin(namespace='api')))
 

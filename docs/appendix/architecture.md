@@ -576,13 +576,13 @@ sw.set_runtime_data(instance, 'handler', 'PluginName', 'key', value)
 ```python
 # 1. By registered name (must call Switcher.register_plugin first)
 Switcher.register_plugin('logging', LoggingPlugin)
-sw.plug('logging', mode='silent')
+sw.plug('logging', mode='print')
 
 # 2. By class
-sw.plug(LoggingPlugin, mode='silent')
+sw.plug(LoggingPlugin, mode='print')
 
 # 3. By instance
-sw.plug(LoggingPlugin(mode='silent'))
+sw.plug(LoggingPlugin(mode='print'))
 ```
 
 ### Plugin Naming
@@ -593,13 +593,11 @@ sw.plug(LoggingPlugin(mode='silent'))
 
 **Access Patterns**:
 ```python
-sw.plug('logging', mode='silent')
+sw.plug('logging', mode='print')
 
 # Access via .plugin() method
-sw.plugin('logging').history()
 
 # Access via attribute (uses __getattr__)
-sw.logging.history()
 ```
 
 ### Metadata Namespace Convention

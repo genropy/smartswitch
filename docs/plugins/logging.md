@@ -1,491 +1,399 @@
-# Logging and History Tracking
+# LoggingPlugin
 
-**New in v0.4.0**: SmartSwitch includes comprehensive logging and history tracking capabilities for monitoring handler executions, analyzing performance, and debugging.
+**New in v0.9.2**: Completely redesigned LoggingPlugin with composable mode flags for real-time output.
+
+The LoggingPlugin provides real-time visibility into handler calls with flexible output options. Perfect for debugging, tutorials, and monitoring.
 
 ---
 
 ## Quick Start
 
-<!-- test: test_logging.py::test_enable_log_silent_mode -->
 ```python
 from smartswitch import Switcher
 
-sw = Switcher(name="test")
+# Create switcher with logging
+sw = Switcher().plug('logging', mode='print')
 
 @sw
-def my_handler(x: int) -> int:
-    return x * 2
+def add(a, b):
+    return a + b
 
-# Enable silent logging (history only, no console output)
-sw.enable_log(mode="silent")
-
-# Call handler
-result = sw("my_handler")(5)  # Returns 10
-
-# Check history
-history = sw.get_log_history()
-print(history[0])
-# {'handler': 'my_handler', 'switcher': 'test',
-#  'args': (5,), 'kwargs': {}, 'result': 10, 'elapsed': 0.0001, ...}
+# Logs input and output automatically
+result = sw('add')(2, 3)
+# Output:
+# → add(2, 3)
+# ← add() → 5
 ```
 
 ---
 
-## Logging Modes
+## Mode Flags
 
-SmartSwitch supports three logging modes:
+The LoggingPlugin uses **composable mode flags** - combine them to control what gets logged.
 
-### Silent Mode (Default)
+### Output Destination (Required)
 
-**History tracking only** - zero overhead, no console output:
+Choose **one** of these:
 
-<!-- test: test_logging.py::test_enable_log_silent_mode -->
+- **`print`**: Output to stdout via `print()`
+- **`log`**: Output via Python's logging system
+
 ```python
-sw.enable_log(mode="silent")
+# Use print (tutorial-friendly, no setup needed)
+sw = Switcher().plug('logging', mode='print')
+
+# Use Python logging (production-ready)
+import logging
+logging.basicConfig(level=logging.INFO)
+sw = Switcher().plug('logging', mode='log')
 ```
 
-Use this for:
-- Performance analysis
-- Debugging in production
-- Recording call history without noise
+### Content Flags (Optional)
 
-### Log Mode
+Add these to control **what** gets logged:
 
-**Console logging only** - immediate feedback, no history:
+- **`before`**: Show input parameters
+- **`after`**: Show return value
+- **`time`**: Include execution time
 
-```python
-sw.enable_log(mode="log")
-```
-
-Logs to stdout/stderr using Python's `logging` module.
-
-### Both Mode
-
-**History tracking + console logging**:
+**Default**: If no content flags specified, shows both `before` and `after`.
 
 ```python
-sw.enable_log(mode="both")
+# Only show output
+sw = Switcher().plug('logging', mode='print,after')
+
+# Only show input
+sw = Switcher().plug('logging', mode='print,before')
+
+# Show output with timing
+sw = Switcher().plug('logging', mode='print,after,time')
+
+# Show everything with timing
+sw = Switcher().plug('logging', mode='print,before,after,time')
 ```
 
 ---
 
-## Handler-Specific Logging
+## Output Formats
 
-Enable logging for specific handlers only:
+### Before (Input Parameters)
 
-<!-- test: test_logging.py::test_enable_log_for_specific_handlers -->
 ```python
-sw = Switcher(name="test")
+sw = Switcher().plug('logging', mode='print,before')
 
 @sw
-def handler1(x: int) -> int:
-    return x * 2
+def create_user(name, age, email=''):
+    return {"name": name, "age": age}
+
+sw('create_user')("Alice", age=30, email="alice@test.com")
+# Output: → create_user('Alice', age=30, email='alice@test.com')
+```
+
+### After (Return Value)
+
+```python
+sw = Switcher().plug('logging', mode='print,after')
 
 @sw
-def handler2(x: int) -> int:
-    return x * 3
+def process(data):
+    return f"Processed: {data}"
 
-# Enable logging only for handler1
-sw.enable_log("handler1", mode="silent")
-
-# Call both handlers
-sw("handler1")(5)  # Logged
-sw("handler2")(5)  # Not logged
-
-# History contains only handler1 calls
-history = sw.get_log_history()
-assert len(history) == 1
-assert history[0]["handler"] == "handler1"
+sw('process')("test")
+# Output: ← process() → Processed: test
 ```
 
-### Disabling Specific Handlers
-
-<!-- test: test_logging.py::test_disable_log_specific_handler -->
-```python
-# Enable logging for all handlers
-sw.enable_log(mode="silent")
-
-# Disable for specific handler
-sw.disable_log("handler2")
-
-sw("handler1")(5)  # Logged
-sw("handler2")(5)  # Not logged
-```
-
-### Disabling Globally
-
-<!-- test: test_logging.py::test_disable_log_globally -->
-```python
-sw.enable_log(mode="silent")
-sw("my_handler")(5)  # Logged
-
-sw.disable_log()  # Disable all logging
-
-sw("my_handler")(10)  # Not logged
-```
-
----
-
-## Querying History
-
-### Basic Queries
-
-Get all history:
+### With Timing
 
 ```python
-history = sw.get_log_history()
-```
-
-Get last N entries:
-
-<!-- test: test_logging.py::test_get_log_history_last -->
-```python
-# Get last 2 entries
-history = sw.get_log_history(last=2)
-```
-
-Get first N entries:
-
-<!-- test: test_logging.py::test_get_log_history_first -->
-```python
-# Get first 2 entries
-history = sw.get_log_history(first=2)
-```
-
-Filter by handler name:
-
-<!-- test: test_logging.py::test_get_log_history_by_handler -->
-```python
-history = sw.get_log_history(handler="handler1")
-```
-
----
-
-## Performance Analysis
-
-### Slowest Executions
-
-<!-- test: test_logging.py::test_get_log_history_slowest -->
-```python
-@sw
-def slow_handler(duration: float) -> None:
-    time.sleep(duration)
-
-sw.enable_log(mode="silent", time=True)
-
-handler = sw("slow_handler")
-handler(0.01)
-handler(0.03)
-handler(0.02)
-
-# Get 2 slowest executions
-history = sw.get_log_history(slowest=2)
-# Returns entries in descending order by elapsed time
-```
-
-### Fastest Executions
-
-<!-- test: test_logging.py::test_get_log_history_fastest -->
-```python
-# Get 2 fastest executions
-history = sw.get_log_history(fastest=2)
-# Returns entries in ascending order by elapsed time
-```
-
-### Time Threshold
-
-<!-- test: test_logging.py::test_get_log_history_slower_than -->
-```python
-# Get all entries slower than 15ms
-history = sw.get_log_history(slower_than=0.015)
-```
-
----
-
-## Error Tracking
-
-### Filter by Success/Failure
-
-<!-- test: test_logging.py::test_get_log_history_errors_only -->
-```python
-@sw
-def maybe_fail(should_fail: bool) -> str:
-    if should_fail:
-        raise ValueError("failed")
-    return "success"
-
-sw.enable_log(mode="silent")
-
-handler = sw("maybe_fail")
-handler(False)  # Success
-
-with pytest.raises(ValueError):
-    handler(True)  # Error
-
-# Get errors only
-errors = sw.get_log_history(errors=True)
-assert all("exception" in e for e in errors)
-
-# Get successes only
-successes = sw.get_log_history(errors=False)
-assert all("exception" not in e for e in successes)
-```
-
-### Exception Details
-
-<!-- test: test_logging.py::test_log_history_with_exception -->
-```python
-@sw
-def failing_handler(x: int) -> int:
-    raise ValueError("test error")
-
-sw.enable_log(mode="silent")
-
-with pytest.raises(ValueError):
-    sw("failing_handler")(5)
-
-# History contains exception details
-history = sw.get_log_history()
-assert "exception" in history[0]
-assert history[0]["exception"]["type"] == "ValueError"
-assert history[0]["exception"]["message"] == "test error"
-```
-
----
-
-## Statistics
-
-Get aggregate statistics for all handlers:
-
-<!-- test: test_logging.py::test_get_log_stats -->
-```python
-@sw
-def handler1(x: int) -> int:
-    time.sleep(0.01)
-    return x * 2
+sw = Switcher().plug('logging', mode='print,after,time')
 
 @sw
-def handler2(should_fail: bool) -> str:
-    if should_fail:
-        raise ValueError("error")
-    return "ok"
+def slow_operation():
+    time.sleep(0.1)
+    return "done"
 
-sw.enable_log(mode="silent", time=True)
-
-sw("handler1")(5)
-sw("handler1")(10)
-sw("handler2")(False)
-
-with pytest.raises(ValueError):
-    sw("handler2")(True)
-
-stats = sw.get_log_stats()
-
-# handler1 stats
-assert stats["handler1"]["calls"] == 2
-assert stats["handler1"]["errors"] == 0
-assert stats["handler1"]["avg_time"] > 0
-assert stats["handler1"]["min_time"] > 0
-assert stats["handler1"]["max_time"] > 0
-
-# handler2 stats
-assert stats["handler2"]["calls"] == 2
-assert stats["handler2"]["errors"] == 1
+sw('slow_operation')()
+# Output: ← slow_operation() → done (0.1002s)
 ```
 
-Returns:
-```python
-{
-    "handler1": {
-        "calls": 2,
-        "errors": 0,
-        "avg_time": 0.010234,
-        "min_time": 0.010123,
-        "max_time": 0.010345,
-        "total_time": 0.020468
-    },
-    "handler2": {
-        "calls": 2,
-        "errors": 1,
-        "avg_time": 0.000012,
-        "min_time": 0.000010,
-        "max_time": 0.000014,
-        "total_time": 0.000024
-    }
-}
-```
+### Exception Handling
 
----
-
-## History Management
-
-### Clear History
-
-<!-- test: test_logging.py::test_clear_log_history -->
-```python
-sw.enable_log(mode="silent")
-sw("my_handler")(5)
-
-assert len(sw.get_log_history()) == 1
-
-sw.clear_log_history()
-assert len(sw.get_log_history()) == 0
-```
-
-### Max History Size
-
-<!-- test: test_logging.py::test_max_history_limit -->
-```python
-# Set max history to 3 entries
-sw.enable_log(mode="silent", max_history=3)
-
-handler = sw("my_handler")
-
-# Call 5 times
-for i in range(5):
-    handler(i)
-
-# Only last 3 entries kept
-history = sw.get_log_history()
-assert len(history) == 3
-assert history[0]["args"] == (2,)
-assert history[1]["args"] == (3,)
-assert history[2]["args"] == (4,)
-```
-
-Default: 1000 entries
-
----
-
-## Export History
-
-### Export to JSON
-
-<!-- test: test_logging.py::test_export_log_history -->
-```python
-sw.enable_log(mode="silent")
-sw("my_handler")(5)
-sw("my_handler")(10)
-
-# Export to JSON file
-sw.export_log_history("history.json")
-
-# Read back
-import json
-with open("history.json") as f:
-    data = json.load(f)
-
-assert len(data) == 2
-assert data[0]["handler"] == "my_handler"
-```
-
-### Log to File (JSONL)
-
-<!-- test: test_logging.py::test_log_file_jsonl -->
-```python
-# Enable logging with file output
-sw.enable_log(mode="silent", log_file="calls.jsonl")
-
-sw("my_handler")(5)
-sw("my_handler")(10)
-
-# Read JSONL file
-with open("calls.jsonl") as f:
-    lines = f.readlines()
-
-# Each line is a JSON object
-entry1 = json.loads(lines[0])
-entry2 = json.loads(lines[1])
-
-assert entry1["handler"] == "my_handler"
-assert entry2["handler"] == "my_handler"
-```
-
-JSONL format: One JSON object per line, ideal for streaming and log aggregation tools.
-
----
-
-## Configuration Options
+Exceptions are logged before being re-raised (only if `after` flag is set):
 
 ```python
-sw.enable_log(
-    *handler_names,           # Optional: specific handlers to log
-    mode="silent",            # "silent", "log", or "both"
-    before=True,              # Log before handler execution
-    after=True,               # Log after handler execution
-    time=True,                # Track execution time
-    log_file=None,            # Optional: path to JSONL log file
-    log_format="json",        # Format: "json" (only option currently)
-    max_history=1000,         # Max entries in memory
-)
-```
+sw = Switcher().plug('logging', mode='print,after')
 
----
-
-## Class-Based Usage
-
-<!-- test: test_logging.py::test_logging_with_instance_methods -->
-```python
-class MyAPI:
-    sw = Switcher(name="api")
-
-    def __init__(self):
-        self.value = 42
-
-    @sw
-    def get_value(self) -> int:
-        return self.value
-
-api = MyAPI()
-api.sw.enable_log(mode="silent")
-
-# Call method
-result = api.sw("get_value")()
-assert result == 42
-
-# Check history
-history = api.sw.get_log_history()
-assert history[0]["handler"] == "get_value"
-assert history[0]["result"] == 42
-```
-
----
-
-## Introspection Preservation
-
-Logging preserves the `__wrapped__` attribute for introspection:
-
-<!-- test: test_logging.py::test_logging_preserves_wrapped -->
-```python
 @sw
-def my_handler(x: int, y: int = 10) -> int:
-    """Add two numbers."""
+def may_fail():
+    raise ValueError("Something broke")
+
+try:
+    sw('may_fail')()
+except ValueError:
+    pass
+# Output: ✗ may_fail() raised ValueError: Something broke
+```
+
+---
+
+## Auto-Fallback Behavior
+
+When using `mode='log'`, the plugin automatically falls back to `print()` if logging is not configured:
+
+```python
+# No logging configured - automatically uses print()
+sw = Switcher().plug('logging', mode='log')
+
+@sw
+def handler():
+    return "result"
+
+sw('handler')()
+# Output (via print, not logging): ← handler() → result
+```
+
+This makes the plugin **tutorial-friendly** - works out of the box without requiring logging setup.
+
+---
+
+## Common Use Cases
+
+### Tutorial/Demo Mode
+
+Show everything for educational purposes:
+
+```python
+sw = Switcher().plug('logging', mode='print,before,after')
+
+@sw
+def calculate(x, y):
     return x + y
 
-sw.enable_log(mode="silent")
-handler = sw("my_handler")
+sw('calculate')(5, 10)
+# Output:
+# → calculate(5, 10)
+# ← calculate() → 15
+```
 
-# __wrapped__ still accessible
-assert hasattr(handler, "__wrapped__")
-assert handler.__wrapped__.__doc__ == "Add two numbers."
+### Performance Analysis
+
+Only show timing information:
+
+```python
+sw = Switcher().plug('logging', mode='print,after,time')
+
+@sw
+def expensive_operation():
+    # ... complex logic ...
+    return result
+
+sw('expensive_operation')()
+# Output: ← expensive_operation() → ... (0.1234s)
+```
+
+### Production Monitoring
+
+Use Python logging with structured output:
+
+```python
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s'
+)
+
+sw = Switcher().plug('logging', mode='log,after,time')
+
+@sw
+def api_handler(request):
+    return process_request(request)
+
+# Logs via logging module:
+# 2024-01-15 10:30:45 - ← api_handler() → {...} (0.0123s)
+```
+
+### Debugging Only Inputs
+
+When debugging parameter issues:
+
+```python
+sw = Switcher().plug('logging', mode='print,before')
+
+@sw
+def process(data):
+    # ... implementation ...
+    return result
+
+sw('process')(some_complex_data)
+# Output: → process({...complex data...})
+# (no output clutter from results)
 ```
 
 ---
 
-## Performance Impact
+## Custom Logger
 
-**Silent mode**: Near-zero overhead when disabled, minimal overhead when enabled (~2-5 microseconds per call for history recording).
+Provide a custom logger instance:
 
-**Log mode**: Depends on logging backend configuration.
+```python
+import logging
 
-**Best practices**:
-- Use `mode="silent"` in production for zero-noise monitoring
-- Limit `max_history` to prevent memory growth
-- Use `log_file` for persistent logs without memory overhead
+# Create custom logger
+logger = logging.getLogger('myapp.handlers')
+logger.setLevel(logging.DEBUG)
+handler = logging.FileHandler('handlers.log')
+logger.addHandler(handler)
+
+# Use with LoggingPlugin
+sw = Switcher().plug('logging', mode='log,after,time', logger=logger)
+
+@sw
+def my_handler():
+    return "result"
+
+# Logs to handlers.log via custom logger
+```
+
+---
+
+## Combining with Other Plugins
+
+LoggingPlugin works seamlessly with other plugins:
+
+```python
+from smartswitch import Switcher
+
+# Stack multiple plugins
+sw = (Switcher()
+      .plug('logging', mode='print,after,time')
+      .plug('pydantic'))  # Validation + logging
+
+@sw
+def create_user(name: str, age: int):
+    return {"name": name, "age": age}
+
+# If validation fails, exception is logged
+# If validation passes, result is logged with timing
+```
+
+---
+
+## API Reference
+
+### `.plug('logging', **kwargs)`
+
+Register LoggingPlugin with a Switcher.
+
+**Parameters**:
+
+- **`mode`** (str, default='print'): Composable mode flags
+  - Output: `'print'` or `'log'` (required, mutually exclusive)
+  - Content: `'before'`, `'after'`, `'time'` (optional, combinable)
+  - Examples: `'print'`, `'log,after'`, `'print,before,after,time'`
+
+- **`logger`** (logging.Logger, optional): Custom logger instance
+  - Only used when `mode` includes `'log'`
+  - If None, uses `logging.getLogger('smartswitch')`
+
+**Raises**:
+
+- **ValueError**: If mode doesn't include 'print' or 'log'
+- **ValueError**: If mode includes both 'print' and 'log'
+
+**Examples**:
+
+```python
+# Basic print
+sw.plug('logging', mode='print')
+
+# Only output with timing
+sw.plug('logging', mode='print,after,time')
+
+# Use Python logging
+sw.plug('logging', mode='log,before,after')
+
+# Custom logger with timing
+sw.plug('logging', mode='log,after,time', logger=my_logger)
+```
+
+---
+
+## Migration from v0.8.x
+
+The LoggingPlugin was completely redesigned in v0.9.2. Here's how to migrate:
+
+### Removed Features
+
+| Old API (v0.8.x) | Migration |
+|------------------|-----------|
+| `mode='print'` | Use a separate data collection plugin |
+| `.history()` | No longer available - not an output concern |
+| `.clear()` | No longer available |
+| `.export()` | No longer available |
+| `.stats()` | No longer available |
+| `.set_file()` | Use custom logger with FileHandler |
+| `max_history=N` | No longer available |
+
+### Mode Migration
+
+| Old Mode | New Mode |
+|----------|----------|
+| `mode='print'` | Remove logging or use collection plugin |
+| `mode='log'` | `mode='log,before,after'` or `mode='print,before,after'` |
+| `mode='both'` | `mode='print,before,after'` |
+| `mode='print', time=True` | Use collection plugin with timing |
+
+### Example Migration
+
+**Before (v0.8.x)**:
+```python
+sw = Switcher().plug('logging', mode='print,after,time')
+
+@sw
+def handler(x):
+    return x * 2
+
+result = sw('handler')(5)
+history = sw.logging.history()
+print(history[0]['elapsed'])
+```
+
+**After (v0.9.2+)**:
+```python
+# For output: use new LoggingPlugin
+sw = Switcher().plug('logging', mode='print,after,time')
+
+@sw
+def handler(x):
+    return x * 2
+
+result = sw('handler')(5)
+# Output: ← handler() → 10 (0.0001s)
+
+# For data collection: wait for CollectPlugin (Issue #21)
+# or implement custom plugin for your needs
+```
+
+---
+
+## Why the Redesign?
+
+The v0.8.x LoggingPlugin mixed two concerns:
+1. **Real-time output** (logging calls as they happen)
+2. **Data collection** (storing history for analysis)
+
+This violated the Single Responsibility Principle and made the code complex (387 lines).
+
+**v0.9.2 solution**: Split into two plugins:
+- **LoggingPlugin** (v0.9.2): Real-time output only (220 lines)
+- **CollectPlugin** (planned, Issue #21): Data collection and analysis
+
+This makes both plugins simpler, more focused, and easier to test.
 
 ---
 
 ## See Also
 
-- [Best Practices](best-practices.md) - Production patterns
-- [API Reference](../api/switcher.md) - Complete API documentation
+- [Plugin Development Guide](development.md) - Create custom plugins
+- [Middleware Pattern](middleware.md) - How plugins work
+- [API Reference](../appendix/api.md) - Complete API documentation
