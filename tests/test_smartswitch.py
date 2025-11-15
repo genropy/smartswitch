@@ -1,8 +1,6 @@
-import asyncio
 import unittest
 
-from smartswitch.core import Switcher, BasePlugin
-from smartswitch.plugins import DbOpPlugin
+from smartswitch.core import BasePlugin, Switcher
 
 
 class CountPlugin(BasePlugin):
@@ -12,6 +10,7 @@ class CountPlugin(BasePlugin):
             count = switch.get_runtime_data(instance, entry.name, self.name, "count", 0)
             switch.set_runtime_data(instance, entry.name, self.name, "count", count + 1)
             return call_next(*args, **kwargs)
+
         return wrapper
 
 
@@ -38,6 +37,7 @@ class GatePlugin(BasePlugin):
             if config.get("blocked"):
                 raise RuntimeError("blocked by GatePlugin")
             return call_next(*args, **kwargs)
+
         return wrapper
 
 
@@ -45,35 +45,6 @@ class Base:
     main = Switcher("main", prefix="do_")
     main.plug(CountPlugin)
     main.plug(MetaPlugin)
-
-
-class DummyCursor:
-    def __init__(self, db):
-        self.db = db
-        self.executed = []
-
-    def execute(self, query, params=None):
-        self.executed.append((query, params))
-        if self.db.fail_next:
-            self.db.fail_next = False
-            raise RuntimeError("boom")
-        return True
-
-
-class DummyDB:
-    def __init__(self):
-        self.commits = 0
-        self.rollbacks = 0
-        self.fail_next = False
-
-    def cursor(self):
-        return DummyCursor(self)
-
-    def commit(self):
-        self.commits += 1
-
-    def rollback(self):
-        self.rollbacks += 1
 
 
 class Child(Base):
@@ -94,7 +65,6 @@ class Child(Base):
 
 class TestSwitcher(unittest.TestCase):
     def test_prefix_and_alias_registration(self):
-        obj = Child()
         desc = Child.main.describe()
         self.assertIn("run", desc["methods"])
         self.assertIn("special", desc["methods"])
@@ -102,6 +72,7 @@ class TestSwitcher(unittest.TestCase):
         self.assertTrue(desc["methods"]["run"]["metadata_keys"])
         # collision check
         with self.assertRaises(ValueError):
+
             @Child.main
             def do_run(self, x):
                 return x  # name "run" already used
@@ -151,9 +122,7 @@ class TestSwitcher(unittest.TestCase):
     def test_runtime_data_defaults(self):
         obj = Child()
         Child.main.set_runtime_data(obj, "run", "CountPlugin", "custom", 42)
-        self.assertEqual(
-            Child.main.get_runtime_data(obj, "run", "CountPlugin", "custom"), 42
-        )
+        self.assertEqual(Child.main.get_runtime_data(obj, "run", "CountPlugin", "custom"), 42)
         self.assertEqual(
             Child.main.get_runtime_data(obj, "run", "CountPlugin", "missing", default=-1), -1
         )
@@ -212,6 +181,7 @@ class TestSwitcher(unittest.TestCase):
     def test_register_plugin_by_name(self):
         Switcher.register_plugin("flag", FlagPlugin)
         try:
+
             class Owner:
                 switch = Switcher("switch")
                 switch.plug("flag")
@@ -265,44 +235,6 @@ class TestSwitcher(unittest.TestCase):
             Owner.gate("do_stable")(owner, 1)
         Owner.gate.plugin("GatePlugin").configure("do_stable", enabled=False)
         self.assertEqual(Owner.gate("do_stable")(owner, 2), "stable:2")
-
-    def test_dbop_plugin_injects_cursor_and_commits(self):
-        class Table:
-            dbop = Switcher("dbop")
-            dbop.plug(DbOpPlugin)
-
-            def __init__(self):
-                self.db = DummyDB()
-
-            @dbop
-            def add(self, value, cursor=None, autocommit=True):
-                cursor.execute("INSERT", (value,))
-                return "ok"
-
-        table = Table()
-        result = Table.dbop("add")(table, 10)
-        self.assertEqual(result, "ok")
-        self.assertEqual(table.db.commits, 1)
-
-    def test_dbop_plugin_rolls_back_on_error(self):
-        class Table:
-            dbop = Switcher("dbop")
-            dbop.plug(DbOpPlugin)
-
-            def __init__(self):
-                self.db = DummyDB()
-                self.db.fail_next = True
-
-            @dbop
-            def add(self, value, cursor=None, autocommit=True):
-                cursor.execute("INSERT", (value,))
-                return "ok"
-
-        table = Table()
-        handler = Table.dbop("add")
-        with self.assertRaises(RuntimeError):
-            handler(table, 10)
-        self.assertEqual(table.db.rollbacks, 1)
 
     def test_add_child_discovers_switchers_on_object(self):
         root = Switcher("root")
@@ -374,6 +306,7 @@ class TestSwitcher(unittest.TestCase):
         module = Module()
         root.add_child(module)
         self.assertIs(root.get_child("shared"), module.shared)
+
 
 if __name__ == "__main__":
     unittest.main()

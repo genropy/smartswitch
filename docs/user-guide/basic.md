@@ -187,32 +187,6 @@ result = api("process_payment")(amount=100.0, currency="USD")
 # Logs: "process_payment returned ..."
 ```
 
-### Database Plugin
-
-Inject database cursors and manage transactions:
-
-```python
-from smartswitch.plugins import DbOpPlugin
-
-class UserService:
-    def __init__(self, db):
-        self.db = db
-        self.api = Switcher()
-        self.api.plug(DbOpPlugin())
-
-    @property
-    def create_user(self):
-        @self.api
-        def _create_user(self, name: str, email: str, cursor=None, autocommit=True):
-            cursor.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
-            return cursor.lastrowid
-        return _create_user
-
-# Plugin automatically injects cursor and manages transaction
-service = UserService(db)
-user_id = service.create_user(service, name="Alice", email="alice@example.com")
-```
-
 ### Custom Plugins
 
 Create your own plugins by inheriting from `BasePlugin`:

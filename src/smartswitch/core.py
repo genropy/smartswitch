@@ -28,10 +28,12 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Ty
 # THREAD-LOCAL CONTEXT
 # ============================================================
 
-_activation_ctx: contextvars.ContextVar = contextvars.ContextVar(
+_activation_ctx: contextvars.ContextVar[Dict[Any, bool] | None] = contextvars.ContextVar(
     "smartswitch_activation", default=None
 )
-_runtime_ctx: contextvars.ContextVar = contextvars.ContextVar("smartswitch_runtime", default=None)
+_runtime_ctx: contextvars.ContextVar[Dict[Any, Dict[str, Any]] | None] = contextvars.ContextVar(
+    "smartswitch_runtime", default=None
+)
 
 
 def _get_activation_map() -> Dict[Any, bool]:
@@ -248,6 +250,7 @@ class Switcher:
         inherit_plugins: Optional[bool] = None,
     ):
         self.name = name
+        self.prefix: str
         if prefix is None:
             self.prefix = parent.prefix if parent is not None else ""
         else:

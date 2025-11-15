@@ -409,6 +409,225 @@ class APIServer:
         ...
 ```
 
+## SmartPublisher Integration
+
+If you plan to publish your handlers as APIs using **SmartPublisher**, follow these practices to enable automatic API generation:
+
+### Use Complete Type Hints
+
+Type hints enable automatic parameter validation and API documentation:
+
+```python
+from __future__ import annotations
+
+# ✅ Good: Complete type hints
+@sw
+def create_user(name: str, email: str, age: int | None = None) -> dict[str, Any]:
+    """Create a new user account."""
+    return {"id": 123, "name": name, "email": email, "age": age}
+
+# ❌ Bad: Missing type hints
+@sw
+def create_user(name, email, age=None):
+    """Create a new user account."""
+    return {"id": 123, "name": name, "email": email, "age": age}
+```
+
+**Why it matters:**
+- SmartPublisher generates API schemas from type hints
+- Enables automatic request validation
+- Provides clear API documentation
+- Improves IDE autocompletion
+
+### Write Comprehensive Docstrings
+
+Use Google-style docstrings with Args, Returns, and Raises sections:
+
+```python
+# ✅ Good: Complete documentation
+@sw
+def transfer_funds(
+    from_account: str,
+    to_account: str,
+    amount: float,
+    currency: str = "USD"
+) -> dict[str, Any]:
+    """
+    Transfer funds between two accounts.
+
+    Args:
+        from_account: Source account identifier (e.g., 'ACC123')
+        to_account: Destination account identifier (e.g., 'ACC456')
+        amount: Amount to transfer (must be positive)
+        currency: Currency code (ISO 4217), defaults to 'USD'
+
+    Returns:
+        Transaction result with status and transaction ID:
+        {
+            "transaction_id": str,
+            "status": "completed" | "pending" | "failed",
+            "amount": float,
+            "currency": str
+        }
+
+    Raises:
+        ValueError: If amount is negative or zero
+        PermissionError: If user lacks transfer permissions
+        AccountError: If account is frozen or doesn't exist
+    """
+    if amount <= 0:
+        raise ValueError("Amount must be positive")
+    # Process transfer...
+    return {"transaction_id": "TXN789", "status": "completed"}
+
+# ❌ Bad: Minimal documentation
+@sw
+def transfer_funds(from_account: str, to_account: str, amount: float) -> dict:
+    """Transfer money."""
+    return {"transaction_id": "TXN789"}
+```
+
+**Why it matters:**
+- SmartPublisher extracts docstrings for API documentation
+- Clear parameter descriptions help API consumers
+- Raises section documents error handling
+- Return type description shows response structure
+
+### Provide Clear Parameter Descriptions
+
+Be specific about parameter constraints and formats:
+
+```python
+# ✅ Good: Specific constraints
+@sw
+def schedule_meeting(
+    title: str,           # "Team Standup", max 100 chars
+    date: str,            # ISO 8601 format: "2024-01-15T10:00:00Z"
+    duration_minutes: int # Must be 15, 30, 45, or 60
+) -> dict[str, Any]:
+    """
+    Schedule a meeting.
+
+    Args:
+        title: Meeting title (1-100 characters)
+        date: Meeting date/time in ISO 8601 format (UTC)
+        duration_minutes: Meeting duration (must be 15, 30, 45, or 60)
+
+    Returns:
+        Meeting details with generated meeting ID
+
+    Raises:
+        ValueError: If duration not in allowed values or title too long
+    """
+    if duration_minutes not in (15, 30, 45, 60):
+        raise ValueError("Duration must be 15, 30, 45, or 60 minutes")
+    ...
+```
+
+### Use Modern Type Hint Syntax
+
+Always import annotations to enable modern syntax:
+
+```python
+from __future__ import annotations
+
+# ✅ Good: Modern syntax with union operator
+@sw
+def process_data(
+    items: list[dict[str, Any]],
+    callback: Callable[[dict], bool] | None = None
+) -> list[dict[str, Any]]:
+    """Process data items with optional callback."""
+    ...
+
+# ❌ Bad: Old syntax (without __future__ import)
+from typing import List, Dict, Any, Optional, Callable
+
+@sw
+def process_data(
+    items: List[Dict[str, Any]],
+    callback: Optional[Callable[[Dict], bool]] = None
+) -> List[Dict[str, Any]]:
+    """Process data items with optional callback."""
+    ...
+```
+
+**Why it matters:**
+- Modern syntax is more readable
+- Required for Python 3.10+ union syntax (`|` operator)
+- Consistent with Python 3.10+ best practices
+
+### Example: Well-Documented Handler
+
+Here's a complete example ready for SmartPublisher:
+
+```python
+from __future__ import annotations
+from typing import Any
+
+@sw
+def create_product(
+    name: str,
+    price: float,
+    category: str,
+    tags: list[str] | None = None,
+    available: bool = True
+) -> dict[str, Any]:
+    """
+    Create a new product in the catalog.
+
+    Args:
+        name: Product name (1-200 characters, must be unique)
+        price: Product price in USD (must be positive)
+        category: Product category (must exist in catalog)
+        tags: Optional list of search tags (max 10 tags, 50 chars each)
+        available: Whether product is available for purchase
+
+    Returns:
+        Created product with generated ID and timestamps:
+        {
+            "id": str,              # Product ID (e.g., "PROD123")
+            "name": str,
+            "price": float,
+            "category": str,
+            "tags": list[str],
+            "available": bool,
+            "created_at": str,      # ISO 8601 timestamp
+            "updated_at": str       # ISO 8601 timestamp
+        }
+
+    Raises:
+        ValueError: If price <= 0, name too long, or too many tags
+        CategoryError: If category doesn't exist
+        DuplicateError: If product name already exists
+    """
+    if price <= 0:
+        raise ValueError("Price must be positive")
+    if len(name) > 200:
+        raise ValueError("Name too long (max 200 characters)")
+    if tags and len(tags) > 10:
+        raise ValueError("Too many tags (max 10)")
+
+    # Create product...
+    return {
+        "id": "PROD123",
+        "name": name,
+        "price": price,
+        "category": category,
+        "tags": tags or [],
+        "available": available,
+        "created_at": "2024-01-15T10:00:00Z",
+        "updated_at": "2024-01-15T10:00:00Z"
+    }
+```
+
+**Benefits for SmartPublisher:**
+- ✅ Complete type hints enable automatic validation
+- ✅ Detailed docstring generates clear API documentation
+- ✅ Return structure is documented for API consumers
+- ✅ All exceptions are documented for error handling
+- ✅ Parameter constraints are clear for validation
+
 ## Next Steps
 
 - Review [Named Handlers Guide](named-handlers.md)

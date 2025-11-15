@@ -4,6 +4,8 @@ Switcher Logging Plugin.
 Provides call history tracking and performance monitoring for Switcher handlers.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time

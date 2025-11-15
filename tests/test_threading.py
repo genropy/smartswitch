@@ -8,10 +8,11 @@ Verifies that:
 - Runtime data access is thread-safe
 """
 
-import unittest
 import threading
 import time
-from smartswitch import Switcher, BasePlugin
+import unittest
+
+from smartswitch import BasePlugin, Switcher
 
 
 class ThreadAwarePlugin(BasePlugin):
@@ -110,11 +111,7 @@ class TestThreadSafety(unittest.TestCase):
 
             # Read thread-specific count
             count = Counter.ops.get_runtime_data(
-                counter,
-                "increment",
-                "ThreadPlugin",
-                f"count_Thread-{thread_id}",
-                0
+                counter, "increment", "ThreadPlugin", f"count_Thread-{thread_id}", 0
             )
             thread_results[thread_id] = count
 
@@ -123,11 +120,7 @@ class TestThreadSafety(unittest.TestCase):
         iterations_per_thread = [3, 5, 7, 4, 6]
 
         for i, iterations in enumerate(iterations_per_thread):
-            t = threading.Thread(
-                target=worker,
-                args=(i, iterations),
-                name=f"Thread-{i}"
-            )
+            t = threading.Thread(target=worker, args=(i, iterations), name=f"Thread-{i}")
             threads.append(t)
             t.start()
 
@@ -138,9 +131,7 @@ class TestThreadSafety(unittest.TestCase):
         # Verify each thread has correct count
         for i, expected_count in enumerate(iterations_per_thread):
             self.assertEqual(
-                thread_results[i],
-                expected_count,
-                f"Thread {i} should have count {expected_count}"
+                thread_results[i], expected_count, f"Thread {i} should have count {expected_count}"
             )
 
     def test_thread_local_plugin_enable_disable(self):
@@ -189,14 +180,10 @@ class TestThreadSafety(unittest.TestCase):
 
         for i in range(3):
             t1 = threading.Thread(
-                target=worker_with_plugin_disabled,
-                args=(i,),
-                name=f"DisabledWorker-{i}"
+                target=worker_with_plugin_disabled, args=(i,), name=f"DisabledWorker-{i}"
             )
             t2 = threading.Thread(
-                target=worker_with_plugin_enabled,
-                args=(i,),
-                name=f"EnabledWorker-{i}"
+                target=worker_with_plugin_enabled, args=(i,), name=f"EnabledWorker-{i}"
             )
             threads.extend([t1, t2])
             t1.start()
@@ -210,15 +197,11 @@ class TestThreadSafety(unittest.TestCase):
         for i in range(3):
             # Disabled threads should have count=0
             self.assertEqual(
-                thread_results[f"disabled-{i}"],
-                0,
-                f"Disabled thread {i} should have count 0"
+                thread_results[f"disabled-{i}"], 0, f"Disabled thread {i} should have count 0"
             )
             # Enabled threads should have count=3
             self.assertEqual(
-                thread_results[f"enabled-{i}"],
-                3,
-                f"Enabled thread {i} should have count 3"
+                thread_results[f"enabled-{i}"], 3, f"Enabled thread {i} should have count 3"
             )
 
     def test_concurrent_logging_plugin(self):
@@ -269,6 +252,7 @@ class TestThreadSafety(unittest.TestCase):
 
         class IncrementPlugin(BasePlugin):
             """Plugin that increments a shared counter in runtime data."""
+
             def wrap_handler(self, switch, entry, call_next):
                 def wrapper(*args, **kwargs):
                     instance = args[0] if args else None
@@ -283,6 +267,7 @@ class TestThreadSafety(unittest.TestCase):
                         instance, entry.name, self.name, "shared_counter", current + 1
                     )
                     return call_next(*args, **kwargs)
+
                 return wrapper
 
         class SharedCounter:

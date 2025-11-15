@@ -11,9 +11,11 @@ import pytest
 # Skip all tests if pydantic is not installed
 pydantic = pytest.importorskip("pydantic", reason="pydantic not installed")
 
-from pydantic import BaseModel, ValidationError
-from smartswitch import Switcher
-from typing import Optional
+from typing import Optional  # noqa: E402
+
+from pydantic import BaseModel, ValidationError  # noqa: E402
+
+from smartswitch import Switcher  # noqa: E402
 
 
 class TestPydanticPluginBasics:

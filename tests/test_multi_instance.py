@@ -9,7 +9,8 @@ Verifies that:
 """
 
 import unittest
-from smartswitch import Switcher, BasePlugin
+
+from smartswitch import BasePlugin, Switcher
 
 
 class CounterPlugin(BasePlugin):
@@ -21,6 +22,7 @@ class CounterPlugin(BasePlugin):
             count = switch.get_runtime_data(instance, entry.name, self.name, "count", 0)
             switch.set_runtime_data(instance, entry.name, self.name, "count", count + 1)
             return call_next(*args, **kwargs)
+
         return wrapper
 
 
@@ -162,30 +164,23 @@ class TestMultipleInstances(unittest.TestCase):
 
         # Verify isolated data
         self.assertEqual(
-            Worker.tasks.get_runtime_data(w1, "work", "CounterPlugin", "status"),
-            "active"
+            Worker.tasks.get_runtime_data(w1, "work", "CounterPlugin", "status"), "active"
         )
         self.assertEqual(
-            Worker.tasks.get_runtime_data(w2, "work", "CounterPlugin", "status"),
-            "paused"
+            Worker.tasks.get_runtime_data(w2, "work", "CounterPlugin", "status"), "paused"
         )
         self.assertEqual(
-            Worker.tasks.get_runtime_data(w3, "work", "CounterPlugin", "status"),
-            "active"
+            Worker.tasks.get_runtime_data(w3, "work", "CounterPlugin", "status"), "active"
         )
 
         self.assertEqual(
-            Worker.tasks.get_runtime_data(w1, "work", "CounterPlugin", "priority"),
-            "high"
+            Worker.tasks.get_runtime_data(w1, "work", "CounterPlugin", "priority"), "high"
         )
         self.assertEqual(
-            Worker.tasks.get_runtime_data(w2, "work", "CounterPlugin", "priority"),
-            "low"
+            Worker.tasks.get_runtime_data(w2, "work", "CounterPlugin", "priority"), "low"
         )
         # w3 has no priority set
-        self.assertIsNone(
-            Worker.tasks.get_runtime_data(w3, "work", "CounterPlugin", "priority")
-        )
+        self.assertIsNone(Worker.tasks.get_runtime_data(w3, "work", "CounterPlugin", "priority"))
 
     def test_multiple_plugins_per_instance_control(self):
         """Test controlling multiple plugins independently per instance."""

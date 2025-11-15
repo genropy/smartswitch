@@ -4,10 +4,11 @@ Tests for LoggingPlugin.
 Comprehensive tests for the new plugin-based logging system.
 """
 
-import time
-import tempfile
 import json
+import tempfile
+import time
 from pathlib import Path
+
 from smartswitch import Switcher
 
 
@@ -112,8 +113,8 @@ class TestLoggingPluginModes:
         logger.setLevel(logging.INFO)
 
         # Use in-memory handler
-        from io import StringIO
         import logging
+        from io import StringIO
 
         stream = StringIO()
         handler = logging.StreamHandler(stream)

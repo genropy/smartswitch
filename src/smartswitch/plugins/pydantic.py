@@ -11,6 +11,8 @@ MVP Support:
 - Existing Pydantic BaseModel instances
 """
 
+from __future__ import annotations
+
 import inspect
 from typing import TYPE_CHECKING, Any, Callable, Optional, get_type_hints
 
@@ -103,7 +105,7 @@ class PydanticPlugin(BasePlugin):
                 fields[param_name] = (hint, param.default)
 
         # Create validation model
-        validation_model = create_model(f"{func.__name__}_Model", **fields)
+        validation_model = create_model(f"{func.__name__}_Model", **fields)  # type: ignore[call-overload]
 
         # Store model and metadata in entry for runtime use
         entry.metadata["pydantic"] = {
