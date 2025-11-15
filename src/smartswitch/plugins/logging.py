@@ -21,14 +21,19 @@ class LoggingPlugin(BasePlugin):
     Switcher plugin for real-time handler logging.
 
     Displays handler calls and results in real-time using either print() or
-    Python's logging system. Supports composable flags to control what is shown.
+    Python's logging system. Supports composable flags and granular per-method
+    configuration.
 
     Args:
         name: Plugin name (default: 'logger')
-        mode: Composable mode flags (default: 'print')
+        mode: Global mode flags (default: 'log,disabled')
               Output destination (required, mutually exclusive):
               - 'print': Use print() for output
               - 'log': Use Python logging (with auto-fallback to print)
+
+              State flag (optional):
+              - 'enabled': Plugin enabled (default if neither specified)
+              - 'disabled': Plugin disabled
 
               Content flags (optional, combinable):
               - 'before': Show input parameters
@@ -38,46 +43,66 @@ class LoggingPlugin(BasePlugin):
               Default: If no content flags, shows both before and after.
 
               Examples:
-              - 'print' → print input + output
-              - 'print,time' → print input + output + timing
+              - 'log,disabled' → plugin registered but inactive (DEFAULT)
+              - 'print' → print input + output for all methods
+              - 'print,after,time' → print only output with timing
               - 'log,after' → log only output
-              - 'print,before' → print only input
 
         logger: Custom logger instance. If None, uses logger named 'smartswitch'
 
-    Examples:
-        Basic usage (tutorial-friendly, no logging config needed):
+        config: Dict with per-method configuration overrides.
+                Keys: method name or comma-separated names ('alfa,beta,gamma')
+                Values: mode string (same format as 'mode' parameter)
 
-        >>> sw = Switcher(plugins=[LoggingPlugin(mode='print')])
+                Examples:
+                - {'calculate': 'print,after,time'}
+                - {'history': 'disabled'}
+                - {'alfa,beta,gamma': 'disabled'}
+
+    Examples:
+        Default: plugin disabled (opt-in behavior):
+
+        >>> sw = Switcher().plug('logging')  # Disabled by default
         >>> @sw
         ... def add(a, b):
         ...     return a + b
+        >>> sw('add')(2, 3)  # No output
+        5
+
+        Basic usage (enable globally):
+
+        >>> sw = Switcher().plug('logging', mode='print')
         >>> sw('add')(2, 3)
-        → add(a=2, b=3)
+        → add(2, 3)
         ← add() → 5
         5
 
-        Show only output with timing:
+        Granular configuration (enable only specific methods):
 
-        >>> sw = Switcher(plugins=[LoggingPlugin(mode='print,after,time')])
-        >>> sw('add')(2, 3)
-        ← add() → 5 (0.0001s)
-        5
+        >>> sw = Switcher().plug('logging', config={
+        ...     'calculate': 'print,after,time',
+        ...     'process': 'print,before'
+        ... })
+        >>> sw('calculate')(2, 3)  # Logs with timing
+        ← calculate() → 5 (0.0001s)
+        >>> sw('other_method')(1)  # No logging (global disabled)
 
-        With Python logging (auto-fallback if not configured):
+        Disable specific methods:
 
-        >>> sw = Switcher(plugins=[LoggingPlugin(mode='log,after')])
-        >>> sw('add')(2, 3)  # Uses print() if logging not configured
-        ← add() → 5
-        5
+        >>> sw = Switcher().plug('logging', mode='print,after', config={
+        ...     'internal_helper': 'disabled',
+        ...     'alfa,beta,gamma': 'disabled'  # Multiple methods
+        ... })
+        >>> sw('public_api')(1)  # Logs
+        ← public_api() → 1
+        >>> sw('internal_helper')(2)  # No logging
 
-        Full logging with timing:
+        With Python logging:
 
         >>> import logging
         >>> logging.basicConfig(level=logging.INFO)
-        >>> sw = Switcher(plugins=[LoggingPlugin(mode='log,before,after,time')])
+        >>> sw = Switcher().plug('logging', mode='log,after,time')
         >>> sw('add')(2, 3)
-        INFO:smartswitch:→ add(a=2, b=3)
         INFO:smartswitch:← add() → 5 (0.0001s)
         5
     """
@@ -85,47 +110,111 @@ class LoggingPlugin(BasePlugin):
     def __init__(
         self,
         name: Optional[str] = None,
-        mode: str = "print",
+        mode: str = "log,disabled",
         logger: Optional[logging.Logger] = None,
-        **config: Any,
+        config: Optional[dict] = None,
+        **kwargs: Any,
     ):
         """Initialize the logging plugin."""
-        super().__init__(name=name or "logger", **config)
+        super().__init__(name=name or "logger", **kwargs)
 
-        # Parse mode flags
-        flags = set(f.strip() for f in mode.split(","))
+        # Parse global mode flags and store in BasePlugin's _global_config
+        global_cfg = self._parse_mode(mode)
+        self._global_config.update(global_cfg)
 
-        # Output destination (required, mutually exclusive)
-        self.use_print = "print" in flags
-        self.use_log = "log" in flags
-
-        if not self.use_print and not self.use_log:
-            raise ValueError("mode must include 'print' or 'log'")
-        if self.use_print and self.use_log:
-            raise ValueError("mode cannot include both 'print' and 'log'")
-
-        # Content flags (optional, combinable)
-        self.show_before = "before" in flags
-        self.show_after = "after" in flags
-        self.show_time = "time" in flags
-
-        # Default: if no content flags, show both before and after
-        if not self.show_before and not self.show_after:
-            self.show_before = True
-            self.show_after = True
+        # Parse per-method configurations using BasePlugin's system
+        if config:
+            for method_names, method_mode in config.items():
+                # Parse method mode, inheriting from global if needed
+                parsed = self._parse_mode(method_mode, inherit_from=global_cfg)
+                # Support comma-separated method names: 'alfa,beta,gamma'
+                for method_name in method_names.split(","):
+                    method_name = method_name.strip()
+                    # Use BasePlugin's configure() to store per-method config
+                    self.configure(method_name, **parsed)
 
         self._logger = logger or logging.getLogger("smartswitch")
 
-    def _output(self, message: str, level: str = "info"):
+    def _parse_mode(self, mode: str, inherit_from: Optional[dict] = None) -> dict:
+        """
+        Parse mode string into configuration dict.
+
+        Args:
+            mode: Mode string with flags
+            inherit_from: Optional config to inherit missing flags from
+
+        Returns:
+            Configuration dictionary
+        """
+        flags = set(f.strip() for f in mode.split(","))
+
+        # Output destination (optional if inheriting)
+        use_print = "print" in flags
+        use_log = "log" in flags
+
+        # If neither specified and we're inheriting, use inherited values
+        if not use_print and not use_log:
+            if inherit_from:
+                use_print = inherit_from["use_print"]
+                use_log = inherit_from["use_log"]
+            else:
+                raise ValueError("mode must include 'print' or 'log'")
+
+        if use_print and use_log:
+            raise ValueError("mode cannot include both 'print' and 'log'")
+
+        # Enabled/disabled flag
+        is_enabled = "enabled" in flags
+        is_disabled = "disabled" in flags
+
+        if is_enabled and is_disabled:
+            raise ValueError("mode cannot include both 'enabled' and 'disabled'")
+
+        # Default to enabled if neither specified
+        enabled = is_enabled or not is_disabled
+
+        # Content flags (optional, combinable)
+        has_before = "before" in flags
+        has_after = "after" in flags
+        has_time = "time" in flags
+
+        # If inheriting and no content flags specified, use inherited
+        if inherit_from and not (has_before or has_after or has_time):
+            show_before = inherit_from["show_before"]
+            show_after = inherit_from["show_after"]
+            show_time = inherit_from["show_time"]
+        else:
+            show_before = has_before
+            show_after = has_after
+            show_time = has_time
+
+            # Default: if no content flags explicitly set, show both before and after
+            if not show_before and not show_after:
+                show_before = True
+                show_after = True
+
+        return {
+            "enabled": enabled,
+            "use_print": use_print,
+            "use_log": use_log,
+            "show_before": show_before,
+            "show_after": show_after,
+            "show_time": show_time,
+        }
+
+    def _output(self, message: str, level: str = "info", cfg: Optional[dict] = None):
         """
         Output message with auto-fallback.
 
         If use_log is True but logging is not configured (no handlers),
         automatically falls back to print().
         """
-        if self.use_print:
+        if cfg is None:
+            cfg = self._global_config
+
+        if cfg["use_print"]:
             print(message)
-        elif self.use_log:
+        elif cfg["use_log"]:
             if self._logger.hasHandlers():
                 # Logger configured -> use it
                 getattr(self._logger, level)(message)
@@ -175,14 +264,21 @@ class LoggingPlugin(BasePlugin):
         """
         handler_name = entry.name
 
+        # Get merged configuration for this method (uses BasePlugin's system)
+        cfg = self.get_config(handler_name)
+
+        # If disabled for this method, return passthrough
+        if not cfg.get("enabled", True):
+            return call_next
+
         def logged_wrapper(*args, **kwargs):
             # Log before call
-            if self.show_before:
+            if cfg["show_before"]:
                 args_str = self._format_args(args, kwargs)
-                self._output(f"→ {handler_name}({args_str})")
+                self._output(f"→ {handler_name}({args_str})", cfg=cfg)
 
             # Execute handler with optional timing
-            start_time = time.time() if self.show_time else None
+            start_time = time.time() if cfg["show_time"] else None
             exception = None
             result = None
 
@@ -191,23 +287,23 @@ class LoggingPlugin(BasePlugin):
             except Exception as e:
                 exception = e
                 # Log exception
-                if self.show_after:
+                if cfg["show_after"]:
                     time_str = ""
                     if start_time is not None:
                         elapsed = time.time() - start_time
                         time_str = f" ({elapsed:.4f}s)"
                     exc_type = type(e).__name__
                     msg = f"✗ {handler_name}() raised {exc_type}: {e}{time_str}"
-                    self._output(msg, level="error")
+                    self._output(msg, level="error", cfg=cfg)
                 raise
             finally:
                 # Log after call (if no exception)
-                if exception is None and self.show_after:
+                if exception is None and cfg["show_after"]:
                     time_str = ""
                     if start_time is not None:
                         elapsed = time.time() - start_time
                         time_str = f" ({elapsed:.4f}s)"
-                    self._output(f"← {handler_name}() → {result}{time_str}")
+                    self._output(f"← {handler_name}() → {result}{time_str}", cfg=cfg)
 
             return result
 

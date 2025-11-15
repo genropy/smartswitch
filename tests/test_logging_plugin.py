@@ -17,65 +17,76 @@ class TestModeValidation:
     """Test mode flag parsing and validation."""
 
     def test_default_mode(self):
-        """Test default mode is 'print' with before+after."""
+        """Test default mode is 'log,disabled' (plugin disabled)."""
         plugin = LoggingPlugin()
-        assert plugin.use_print is True
-        assert plugin.use_log is False
-        assert plugin.show_before is True
-        assert plugin.show_after is True
-        assert plugin.show_time is False
+        # Check global config
+        assert plugin._global_config["use_log"] is True
+        assert plugin._global_config["use_print"] is False
+        assert plugin._global_config["enabled"] is False  # Disabled by default
+        assert plugin._global_config["show_before"] is True
+        assert plugin._global_config["show_after"] is True
+        assert plugin._global_config["show_time"] is False
 
     def test_print_mode(self):
         """Test explicit print mode."""
         plugin = LoggingPlugin(mode="print")
-        assert plugin.use_print is True
-        assert plugin.use_log is False
-        assert plugin.show_before is True  # Default
-        assert plugin.show_after is True  # Default
+        cfg = plugin._global_config
+        assert cfg["use_print"] is True
+        assert cfg["use_log"] is False
+        assert cfg["enabled"] is True  # Default when not specified
+        assert cfg["show_before"] is True  # Default
+        assert cfg["show_after"] is True  # Default
 
     def test_log_mode(self):
         """Test log mode."""
         plugin = LoggingPlugin(mode="log")
-        assert plugin.use_print is False
-        assert plugin.use_log is True
-        assert plugin.show_before is True  # Default
-        assert plugin.show_after is True  # Default
+        cfg = plugin._global_config
+        assert cfg["use_print"] is False
+        assert cfg["use_log"] is True
+        assert cfg["enabled"] is True  # Default when not specified
+        assert cfg["show_before"] is True  # Default
+        assert cfg["show_after"] is True  # Default
 
     def test_before_flag(self):
         """Test before flag only."""
         plugin = LoggingPlugin(mode="print,before")
-        assert plugin.show_before is True
-        assert plugin.show_after is False
-        assert plugin.show_time is False
+        cfg = plugin._global_config
+        assert cfg["show_before"] is True
+        assert cfg["show_after"] is False
+        assert cfg["show_time"] is False
 
     def test_after_flag(self):
         """Test after flag only."""
         plugin = LoggingPlugin(mode="print,after")
-        assert plugin.show_before is False
-        assert plugin.show_after is True
-        assert plugin.show_time is False
+        cfg = plugin._global_config
+        assert cfg["show_before"] is False
+        assert cfg["show_after"] is True
+        assert cfg["show_time"] is False
 
     def test_time_flag(self):
         """Test time flag with defaults."""
         plugin = LoggingPlugin(mode="print,time")
-        assert plugin.show_before is True  # Default
-        assert plugin.show_after is True  # Default
-        assert plugin.show_time is True
+        cfg = plugin._global_config
+        assert cfg["show_before"] is True  # Default
+        assert cfg["show_after"] is True  # Default
+        assert cfg["show_time"] is True
 
     def test_combined_flags(self):
         """Test combination of flags."""
         plugin = LoggingPlugin(mode="log,before,after,time")
-        assert plugin.use_log is True
-        assert plugin.show_before is True
-        assert plugin.show_after is True
-        assert plugin.show_time is True
+        cfg = plugin._global_config
+        assert cfg["use_log"] is True
+        assert cfg["show_before"] is True
+        assert cfg["show_after"] is True
+        assert cfg["show_time"] is True
 
     def test_whitespace_handling(self):
         """Test mode with whitespace."""
         plugin = LoggingPlugin(mode=" print , after , time ")
-        assert plugin.use_print is True
-        assert plugin.show_after is True
-        assert plugin.show_time is True
+        cfg = plugin._global_config
+        assert cfg["use_print"] is True
+        assert cfg["show_after"] is True
+        assert cfg["show_time"] is True
 
     def test_missing_output_mode(self):
         """Test error when no print or log."""
@@ -400,3 +411,202 @@ class TestEdgeCases:
 
         captured = capsys.readouterr()
         assert "← returns_none() → None" in captured.out
+
+
+class TestGranularConfiguration:
+    """Test per-method configuration feature."""
+
+    def test_default_disabled(self, capsys):
+        """Test plugin is disabled by default."""
+        sw = Switcher().plug("logging")  # No mode specified
+
+        @sw
+        def calculate(x):
+            return x * 2
+
+        result = sw("calculate")(5)
+        assert result == 10
+
+        # Should have no output (plugin disabled by default)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_enable_specific_methods(self, capsys):
+        """Test enabling only specific methods."""
+        sw = Switcher().plug(
+            "logging",
+            config={
+                "calculate": "print,after,time",
+                "process": "print,before",
+            },
+        )
+
+        @sw
+        def calculate(x):
+            return x * 2
+
+        @sw
+        def process(x):
+            return x + 10
+
+        @sw
+        def other(x):
+            return x - 1
+
+        # Calculate should log (after + time)
+        sw("calculate")(5)
+        captured = capsys.readouterr()
+        assert "← calculate() → 10" in captured.out
+        assert "s)" in captured.out  # Has timing
+        assert "→ calculate" not in captured.out  # No before
+
+        # Process should log (before only)
+        sw("process")(5)
+        captured = capsys.readouterr()
+        assert "→ process(5)" in captured.out
+        assert "← process()" not in captured.out  # No after
+
+        # Other should not log (global disabled)
+        sw("other")(5)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_disable_specific_methods(self, capsys):
+        """Test disabling specific methods when globally enabled."""
+        sw = Switcher().plug(
+            "logging",
+            mode="print,after",
+            config={
+                "internal": "disabled",
+                "helper": "disabled",
+            },
+        )
+
+        @sw
+        def public_api(x):
+            return x * 2
+
+        @sw
+        def internal(x):
+            return x + 10
+
+        @sw
+        def helper(x):
+            return x - 1
+
+        # public_api should log
+        sw("public_api")(5)
+        captured = capsys.readouterr()
+        assert "← public_api() → 10" in captured.out
+
+        # internal should not log
+        sw("internal")(5)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+        # helper should not log
+        sw("helper")(5)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_comma_separated_method_names(self, capsys):
+        """Test disabling multiple methods with comma-separated names."""
+        sw = Switcher().plug(
+            "logging",
+            mode="print,after",
+            config={
+                "alfa,beta,gamma": "disabled",
+            },
+        )
+
+        @sw
+        def alfa(x):
+            return x
+
+        @sw
+        def beta(x):
+            return x
+
+        @sw
+        def gamma(x):
+            return x
+
+        @sw
+        def delta(x):
+            return x
+
+        # alfa, beta, gamma should not log
+        sw("alfa")(1)
+        sw("beta")(2)
+        sw("gamma")(3)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+        # delta should log
+        sw("delta")(4)
+        captured = capsys.readouterr()
+        assert "← delta() → 4" in captured.out
+
+    def test_mixed_configuration(self, capsys):
+        """Test mix of global and method-specific configuration."""
+        sw = Switcher().plug(
+            "logging",
+            mode="print,before",  # Global: before only
+            config={
+                "special": "print,after,time",  # Override: after + time
+            },
+        )
+
+        @sw
+        def normal(x):
+            return x * 2
+
+        @sw
+        def special(x):
+            return x + 10
+
+        # normal should use global config (before only)
+        sw("normal")(5)
+        captured = capsys.readouterr()
+        assert "→ normal(5)" in captured.out
+        assert "← normal()" not in captured.out
+
+        # special should use method-specific config (after + time)
+        sw("special")(5)
+        captured = capsys.readouterr()
+        assert "← special() → 15" in captured.out
+        assert "s)" in captured.out
+        assert "→ special" not in captured.out
+
+    def test_enabled_flag_validation(self):
+        """Test that enabled and disabled flags are mutually exclusive."""
+        with pytest.raises(ValueError, match="cannot include both 'enabled' and 'disabled'"):
+            LoggingPlugin(mode="print,enabled,disabled")
+
+    def test_disabled_flag_in_config(self, capsys):
+        """Test using disabled flag in config dict."""
+        sw = Switcher().plug(
+            "logging",
+            mode="print,after",
+            config={
+                "skip_me": "log,disabled",
+            },
+        )
+
+        @sw
+        def skip_me(x):
+            return x
+
+        @sw
+        def process_me(x):
+            return x
+
+        # skip_me should not log
+        sw("skip_me")(1)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+        # process_me should log
+        sw("process_me")(2)
+        captured = capsys.readouterr()
+        assert "← process_me() → 2" in captured.out
