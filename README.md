@@ -24,7 +24,7 @@
 SmartSwitch provides two core capabilities:
 
 1. **Named Handler Registry**: Register functions by name or custom alias, then call them dynamically
-2. **Plugin System**: Extend functionality with middleware-style plugins for logging, validation, async support, etc.
+2. **Plugin System**: Extend functionality with middleware-style plugins for logging, validation, caching, metrics, etc.
 
 **When to use SmartSwitch**:
 - Building API routers or command dispatchers
@@ -147,7 +147,7 @@ Extend SmartSwitch functionality with plugins:
 from smartswitch import Switcher
 
 # Create switcher with logging plugin
-sw = Switcher().plug('logging', mode='print,after,time')
+sw = Switcher().plug('logging', flags='print,enabled,after,time')
 
 @sw
 def my_handler(x):
@@ -158,7 +158,7 @@ result = sw('my_handler')(5)  # → 10
 # Output: ← my_handler() → 10 (0.0001s)
 
 # Use before+after for debugging
-sw_debug = Switcher().plug('logging', mode='print,before,after')
+sw_debug = Switcher().plug('logging', flags='print,enabled,after')
 
 @sw_debug
 def process(data):
@@ -173,7 +173,7 @@ sw_debug('process')("test")
 ### Creating Custom Plugins
 
 ```python
-from smartswitch import BasePlugin
+from smartswitch import Switcher, BasePlugin
 
 class ValidationPlugin(BasePlugin):
     """Validate arguments before handler execution."""
@@ -186,8 +186,11 @@ class ValidationPlugin(BasePlugin):
             return call_next(*args, **kwargs)
         return wrapper
 
-# Use custom plugin
-sw = Switcher().plug(ValidationPlugin())
+# Register plugin globally
+Switcher.register_plugin('validation', ValidationPlugin)
+
+# Use registered plugin by name
+sw = Switcher().plug('validation')
 
 @sw
 def process(data):
@@ -201,12 +204,17 @@ result = sw('process')("test")  # → "Processed: test"
 
 ```python
 from smartswitch import Switcher
-from my_plugins import CachePlugin, MetricsPlugin
 
+# Register custom plugins first
+from my_plugins import CachePlugin, MetricsPlugin
+Switcher.register_plugin('cache', CachePlugin)
+Switcher.register_plugin('metrics', MetricsPlugin)
+
+# Use registered plugins by name
 sw = (Switcher()
-      .plug('logging', mode='print,after,time')
-      .plug(CachePlugin(ttl=300))
-      .plug(MetricsPlugin(namespace='api')))
+      .plug('logging', flags='print,enabled,after,time')
+      .plug('cache', ttl=300)
+      .plug('metrics', namespace='api'))
 
 @sw
 def expensive_operation(x):

@@ -52,84 +52,84 @@ This is where you can:
 
 ## Reference Implementation: LoggingPlugin
 
-> **USE THIS AS YOUR TEMPLATE**: The `LoggingPlugin` is the canonical example of the middleware pattern in SmartSwitch. When creating your own plugins, follow this structure.
+> **USE THIS AS YOUR TEMPLATE**: The `LoggingPlugin` (v0.10.0+) is the canonical example of the middleware pattern in SmartSwitch. When creating your own plugins, follow this structure.
 
-Let's dissect the LoggingPlugin in extreme detail to understand every aspect of the pattern.
+Let's dissect the LoggingPlugin in detail to understand the middleware pattern with **v0.10.0 Pydantic-based configuration**.
 
 ### Complete Code with Detailed Annotations
 
 ```python
-class LoggingPlugin:
-    plugin_name = "logging"
+from smartswitch import BasePlugin
+from pydantic import BaseModel, Field
+import time
 
-    def __init__(self, mode='print', time=True, max_history=10000, logger=None):
-        """
-        Plugin configuration (happens ONCE when plugin is created).
+class LoggingConfig(BaseModel):
+    """Pydantic configuration model for LoggingPlugin."""
+    enabled: bool = Field(default=False, description="Enable plugin")
+    print: bool = Field(default=False, description="Use print() for output")
+    log: bool = Field(default=True, description="Use Python logging")
+    before: bool = Field(default=True, description="Show input parameters")
+    after: bool = Field(default=False, description="Show return value")
+    time: bool = Field(default=False, description="Show execution time")
 
-        This is NOT the middleware wrapper - this is plugin setup.
+class LoggingPlugin(BasePlugin):
+    """Real-time call logging with Pydantic configuration."""
+
+    config_model = LoggingConfig  # Pydantic model for validation
+
+    def __init__(self, name=None, logger=None, **kwargs):
         """
-        self.mode = mode                    # silent/log/both
-        self.track_time = time              # Enable timing?
-        self.max_history = max_history      # History buffer size
+        Plugin initialization (happens ONCE when plugin is created).
+
+        BasePlugin handles all Pydantic configuration via **kwargs.
+        """
+        super().__init__(name=name or "logger", **kwargs)
         self._logger = logger or logging.getLogger("smartswitch")
-        self._history = []                  # In-memory call history
-        self._log_file = None              # Optional file logging
-        self._switcher = None              # Set by wrap()
 
-    def wrap(self, func, switcher):
+    def wrap_handler(self, switch, entry, call_next):
         """
         THE MIDDLEWARE FACTORY: Creates the wrapper for ONE function.
 
-        This method is called ONCE per handler function during registration.
+        This method is called ONCE per handler during registration.
         It returns a wrapper that executes on EVERY call to that handler.
 
         Args:
-            func: The handler function to wrap (e.g., process_order)
-            switcher: The Switcher instance managing this handler
+            switch: The Switcher instance
+            entry: MethodEntry with handler metadata
+            call_next: The next layer in the middleware chain
 
         Returns:
             A wrapper function that implements the middleware pattern
         """
-        # Store switcher reference (needed for history queries)
-        if self._switcher is None:
-            self._switcher = switcher
+        handler_name = entry.name
 
-        handler_name = func.__name__
-
-        @wraps(func)
         def logged_wrapper(*args, **kwargs):
             """
             THE ACTUAL MIDDLEWARE: Runs on EVERY function call.
 
             This is where the bidirectional pattern happens:
             1. onCalling phase (before function)
-            2. Function execution
+            2. Function execution (via call_next)
             3. onCalled phase (after function)
             """
 
             # ================================================================
             # PHASE 1: onCalling (BEFORE function execution)
             # ================================================================
-            # This code runs BEFORE the wrapped function.
-            # Use for: validation, setup, logging entry, start timers
+            # Get runtime config (supports dynamic changes!)
+            cfg = self.get_config(handler_name)
 
-            # Create log entry with call metadata
-            entry = {
-                "handler": handler_name,
-                "switcher": switcher.name,
-                "timestamp": time.time(),      # When did call start?
-                "args": args,                  # What arguments?
-                "kwargs": kwargs,              # What keyword arguments?
-            }
+            # If disabled, skip all processing
+            if not cfg.get("enabled"):
+                return call_next(*args, **kwargs)
 
-            # If mode is 'log' or 'both', log to Python logger NOW
-            if self.mode in ("log", "both"):
-                self._logger.info(
-                    f"Calling {handler_name} with args={args}, kwargs={kwargs}"
-                )
+            # Log BEFORE if configured
+            if cfg.get("before"):
+                args_str = self._format_args(args, kwargs)
+                self._output(f"→ {handler_name}({args_str})", cfg=cfg)
 
-            # Start performance timer (if timing enabled)
-            start_time = time.time() if self.track_time else None
+            # Start performance timer if configured
+            start_time = time.time() if cfg.get("time") else None
 
             # Variables to capture result/exception
             exception = None
@@ -137,107 +137,71 @@ class LoggingPlugin:
 
             try:
                 # ============================================================
-                # PHASE 2: FUNCTION EXECUTION
+                # PHASE 2: FUNCTION EXECUTION (via call_next)
                 # ============================================================
-                # The actual wrapped function executes here.
-                # This is the "application" in the WSGI analogy.
+                # Call the next layer in the middleware chain
+                result = call_next(*args, **kwargs)
 
-                result = func(*args, **kwargs)
-
-                # If we get here, function succeeded
-                entry["result"] = result
-
-                # ============================================================
-                # PHASE 3a: onCalled (AFTER - SUCCESS path)
-                # ============================================================
-                # This code runs ONLY if function succeeded.
-                # We already stored result in entry.
 
             except Exception as e:
                 # ============================================================
                 # PHASE 3b: onCalled (AFTER - ERROR path)
                 # ============================================================
                 # This code runs ONLY if function raised an exception.
-
                 exception = e
 
-                # Store exception details in log entry
-                entry["exception"] = {
-                    "type": type(e).__name__,    # Exception class name
-                    "message": str(e),           # Error message
-                }
+                # Log exception if configured
+                if cfg.get("after"):
+                    time_str = ""
+                    if start_time is not None:
+                        elapsed = time.time() - start_time
+                        time_str = f" ({elapsed:.4f}s)"
+                    exc_type = type(e).__name__
+                    msg = f"✗ {handler_name}() raised {exc_type}: {e}{time_str}"
+                    self._output(msg, level="error", cfg=cfg)
 
                 # CRITICAL: Re-raise to preserve error propagation
-                # The caller needs to know the function failed!
                 raise
 
             finally:
                 # ============================================================
-                # PHASE 3c: onCalled (ALWAYS executed)
+                # PHASE 3c: onCalled (AFTER - SUCCESS path in finally)
                 # ============================================================
-                # This code runs REGARDLESS of success or failure.
-                # Perfect for: cleanup, timing, history, file writes
-
-                # Stop timer and calculate elapsed time
-                if start_time is not None:
-                    entry["elapsed"] = time.time() - start_time
-                    elapsed_str = f" ({entry['elapsed']:.4f}s)"
-                else:
-                    elapsed_str = ""
-
-                # Log result or error (if Python logging enabled)
-                if self.mode in ("log", "both"):
-                    if exception:
-                        exc_type = type(exception).__name__
-                        self._logger.error(
-                            f"{handler_name} raised {exc_type}: "
-                            f"{exception}{elapsed_str}"
-                        )
-                    else:
-                        self._logger.info(
-                            f"{handler_name} returned {result}{elapsed_str}"
-                        )
-
-                # Add to in-memory history (if mode is silent or both)
-                if self.mode in ("silent", "both"):
-                    self._history.append(entry)
-
-                    # Maintain circular buffer (prevent memory leak)
-                    if len(self._history) > self.max_history:
-                        self._history.pop(0)  # Remove oldest
-
-                # Write to log file if configured (real-time logging)
-                if self._log_file:
-                    try:
-                        with open(self._log_file, "a") as f:
-                            # Convert to JSON-serializable format
-                            serializable_entry = {
-                                "handler": entry["handler"],
-                                "switcher": entry["switcher"],
-                                "timestamp": entry["timestamp"],
-                                "args": str(entry["args"]),
-                                "kwargs": str(entry["kwargs"]),
-                            }
-                            if "result" in entry:
-                                serializable_entry["result"] = str(entry["result"])
-                            if "exception" in entry:
-                                serializable_entry["exception"] = entry["exception"]
-                            if "elapsed" in entry:
-                                serializable_entry["elapsed"] = entry["elapsed"]
-
-                            # Write as JSON Lines (one object per line)
-                            f.write(json.dumps(serializable_entry) + "\n")
-                    except Exception:
-                        # IMPORTANT: Silently ignore file write errors
-                        # Don't let logging failures crash the application!
-                        pass
+                # Log result AFTER function succeeds (if no exception)
+                if exception is None and cfg.get("after"):
+                    time_str = ""
+                    if start_time is not None:
+                        elapsed = time.time() - start_time
+                        time_str = f" ({elapsed:.4f}s)"
+                    self._output(f"← {handler_name}() → {result}{time_str}", cfg=cfg)
 
             # Return the result to the caller
             return result
 
-        # Preserve original function (for introspection)
-        logged_wrapper.__wrapped__ = func
         return logged_wrapper
+
+    def _format_args(self, args, kwargs):
+        """Helper: Format arguments for display."""
+        parts = []
+        if args:
+            parts.extend(repr(arg) for arg in args)
+        if kwargs:
+            parts.extend(f"{k}={repr(v)}" for k, v in kwargs.items())
+        return ", ".join(parts)
+
+    def _output(self, message, level="info", cfg=None):
+        """Helper: Output message to print or logger."""
+        if cfg is None:
+            cfg = self._global_config
+
+        if cfg.get("print"):
+            print(message)
+        elif cfg.get("log"):
+            if self._logger.hasHandlers():
+                getattr(self._logger, level)(message)
+            else:
+                # Fallback to print if logger not configured
+                print(message)
 ```
 
 ### Execution Flow Diagram
@@ -454,7 +418,7 @@ When multiple plugins are registered:
 
 ```python
 sw = (Switcher()
-      .plug('logging', mode='print,after,time')
+      .plug('logging', flags='print,enabled,after,time')
       .plug('metrics')
       .plug('cache'))
 
@@ -529,7 +493,7 @@ Result: 5
 - `logger` (logs function calls)
 - `metrics` (collects metrics)
 - `cache` (caches results)
-- `async` (async support)
+- `validation` (validates inputs)
 - `retry` (retry logic)
 
 ### Why This Matters
@@ -547,28 +511,30 @@ The plugin name becomes the attribute for accessing it:
 When publishing plugin packages to PyPI:
 
 **Package name** (on PyPI): Can reference the ecosystem for discoverability
-- ✅ `smartasync` (if part of SmartSwitch ecosystem)
-- ✅ `gtext-cache` (if from gtext family)
+- ✅ `smartcache` (if part of SmartSwitch ecosystem)
+- ✅ `gtext-validation` (if from gtext family)
 
 **Plugin name** (in code): Should describe functionality only
-- ✅ `plugin_name = "async"`
 - ✅ `plugin_name = "cache"`
+- ✅ `plugin_name = "validation"`
 
 **Example**:
 
 ```python
-# Package on PyPI: "smartasync"
-# pip install smartasync
+# Package on PyPI: "smartcache"
+# pip install smartcache
 
-from smartasync import SmartAsyncPlugin
+from smartcache import SmartCachePlugin
 
-# Plugin name in code: just "async"
-class SmartAsyncPlugin:
-    plugin_name = "async"  # ✅ Not "smartasync"!
+# Plugin name in code: just "cache"
+class SmartCachePlugin(BasePlugin):
+    def __init__(self, **kwargs):
+        super().__init__(name="cache", **kwargs)  # ✅ Not "smartcache"!
 
 # Usage - attribute is clean
-sw = Switcher().plug(SmartAsyncPlugin())
-sw.async.is_async('my_handler')  # ✅ Clear
+Switcher.register_plugin('cache', SmartCachePlugin)
+sw = Switcher().plug('cache')
+sw.cache.clear()  # ✅ Clear
 ```
 
 ## Use Cases and Examples
@@ -593,15 +559,16 @@ class PrometheusPlugin:
             ['handler']
         )
 
-    def wrap(self, func, switcher):
-        @wraps(func)
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
             # onCalling: Start timer
             start = time.time()
             status = "success"
 
             try:
-                result = func(*args, **kwargs)
+                result = call_next(*args, **kwargs)
                 return result
             except Exception:
                 status = "error"
@@ -609,8 +576,8 @@ class PrometheusPlugin:
             finally:
                 # onCalled: Record metrics
                 elapsed = time.time() - start
-                self.duration_histogram.labels(handler=func.__name__).observe(elapsed)
-                self.call_counter.labels(handler=func.__name__, status=status).inc()
+                self.duration_histogram.labels(handler=handler_name).observe(elapsed)
+                self.call_counter.labels(handler=handler_name, status=status).inc()
 
         return wrapper
 ```
@@ -620,30 +587,32 @@ class PrometheusPlugin:
 ```python
 from datadog import statsd
 
-class DataDogPlugin:
-    plugin_name = "metrics"  # ✅ Not "datadog"!
+class DataDogPlugin(BasePlugin):
+    def __init__(self, **kwargs):
+        super().__init__(name="metrics", **kwargs)  # ✅ Not "datadog"!
 
-    def wrap(self, func, switcher):
-        @wraps(func)
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
             # onCalling: Increment call counter
-            statsd.increment(f'function.{func.__name__}.calls')
+            statsd.increment(f'function.{handler_name}.calls')
             start = time.time()
 
             try:
-                result = func(*args, **kwargs)
+                result = call_next(*args, **kwargs)
 
                 # onCalled (success): Mark as success
-                statsd.increment(f'function.{func.__name__}.success')
+                statsd.increment(f'function.{handler_name}.success')
                 return result
             except Exception:
                 # onCalled (error): Mark as error
-                statsd.increment(f'function.{func.__name__}.error')
+                statsd.increment(f'function.{handler_name}.error')
                 raise
             finally:
                 # onCalled (always): Send timing
                 elapsed = time.time() - start
-                statsd.histogram(f'function.{func.__name__}.duration', elapsed)
+                statsd.histogram(f'function.{handler_name}.duration', elapsed)
 
         return wrapper
 ```
@@ -653,23 +622,23 @@ class DataDogPlugin:
 ```python
 from opentelemetry import trace
 
-class TracingPlugin:
-    plugin_name = "tracing"  # ✅ Not "opentelemetry"!
-
-    def __init__(self):
+class TracingPlugin(BasePlugin):
+    def __init__(self, **kwargs):
+        super().__init__(name="tracing", **kwargs)  # ✅ Not "opentelemetry"!
         self.tracer = trace.get_tracer(__name__)
 
-    def wrap(self, func, switcher):
-        @wraps(func)
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
             # onCalling: Start span
-            with self.tracer.start_as_current_span(func.__name__) as span:
+            with self.tracer.start_as_current_span(handler_name) as span:
                 span.set_attribute("function.args", str(args))
                 span.set_attribute("function.kwargs", str(kwargs))
 
                 try:
                     # Execute function
-                    result = func(*args, **kwargs)
+                    result = call_next(*args, **kwargs)
 
                     # onCalled (success): Mark span as success
                     span.set_attribute("function.result", str(result))
@@ -703,11 +672,11 @@ Mix and match as needed:
 
 ```python
 # Development
-dev_sw = Switcher().plug('logging', mode='verbose')
+dev_sw = Switcher().plug('logging', flags='print,enabled,before,after,time')
 
 # Production
 prod_sw = (Switcher()
-           .plug('logging', mode='print')
+           .plug('logging', flags='print,enabled')
            .plug(PrometheusPlugin())
            .plug('cache'))
 ```

@@ -210,7 +210,7 @@ class TestThreadSafety(unittest.TestCase):
         class Service:
             ops = Switcher("ops")
             # Use print mode - new LoggingPlugin doesn't collect history
-            ops.plug("logging", mode="print,after,time")
+            ops.plug("logging", flags="print,enabled,before:off,after,time")
 
             @ops
             def process(self, data):

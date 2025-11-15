@@ -574,30 +574,29 @@ sw.set_runtime_data(instance, 'handler', 'PluginName', 'key', value)
 **Three Ways to Add Plugins**:
 
 ```python
-# 1. By registered name (must call Switcher.register_plugin first)
+# Register plugin globally (typically done once at module level)
 Switcher.register_plugin('logging', LoggingPlugin)
-sw.plug('logging', mode='print')
 
-# 2. By class
-sw.plug(LoggingPlugin, mode='print')
-
-# 3. By instance
-sw.plug(LoggingPlugin(mode='print'))
+# Use by name with configuration
+sw.plug('logging', flags='print,enabled')
 ```
 
 ### Plugin Naming
 
-**Automatic Naming**:
-- From `name` parameter: `LoggingPlugin(name='mylogger')`
-- From class name: `LoggingPlugin()` → name is `'LoggingPlugin'`
+**Plugin Registration**:
+- Plugins must be registered with `Switcher.register_plugin(name, PluginClass)`
+- Built-in plugins (like 'logging') are pre-registered
+- External plugins must be registered before use
 
 **Access Patterns**:
 ```python
-sw.plug('logging', mode='print')
+sw.plug('logging', flags='print,enabled')
 
-# Access via .plugin() method
+# Access via attribute
+sw.logging.configure.flags = 'enabled:off'
 
-# Access via attribute (uses __getattr__)
+# Per-method configuration
+sw.logging.configure['handler_name'].flags = 'after,time'
 ```
 
 ### Metadata Namespace Convention

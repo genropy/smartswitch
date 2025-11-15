@@ -102,7 +102,7 @@ Add logging to track all handler calls:
 from smartswitch import Switcher
 
 # Create switcher with logging plugin
-sw = Switcher().plug('logging', mode='print,after,time')
+sw = Switcher().plug('logging', flags='print,enabled,after,time')
 
 @sw
 def my_handler(x):

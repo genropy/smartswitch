@@ -89,44 +89,311 @@ class _PluginSpec:
 
 
 # ============================================================
+# CONFIGURATION PROXIES
+# ============================================================
+
+
+class MethodConfigProxy:
+    """
+    Proxy for per-method configuration access.
+
+    Allows setting/getting configuration for specific methods:
+        sw.logging.configure['calculate'].flags = 'time'
+        sw.logging.configure['calculate'].level = 'DEBUG'
+    """
+
+    def __init__(self, plugin: "BasePlugin", method_names: str):
+        """
+        Args:
+            plugin: The plugin instance
+            method_names: Single method or comma-separated ('calculate,clear')
+        """
+        object.__setattr__(self, "_plugin", plugin)
+        object.__setattr__(self, "_method_names", method_names)
+
+    @property
+    def flags(self) -> str:
+        """Get merged flags for this method (only active boolean flags)."""
+        first = self._method_names.split(",")[0].strip()
+        cfg = self._plugin.get_config(first)
+        enabled = [k for k, v in cfg.items() if isinstance(v, bool) and v]
+        return ",".join(enabled)
+
+    @flags.setter
+    def flags(self, value: str):
+        """Set flags for this/these method(s)."""
+        methods = [m.strip() for m in self._method_names.split(",")]
+        self._plugin._update_config(*methods, flags=value)
+
+    @property
+    def config(self) -> dict:
+        """Get full merged configuration for method."""
+        first = self._method_names.split(",")[0].strip()
+        return self._plugin.get_config(first)
+
+    def __getattr__(self, name: str):
+        """Get any merged config parameter for this method."""
+        if name.startswith("_"):
+            return object.__getattribute__(self, name)
+        first = self._method_names.split(",")[0].strip()
+        cfg = self._plugin.get_config(first)
+        return cfg.get(name)
+
+    def __setattr__(self, name: str, value: Any):
+        """Set any config parameter for this/these method(s)."""
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            methods = [m.strip() for m in self._method_names.split(",")]
+            self._plugin._update_config(*methods, **{name: value})
+
+
+class ConfigureProxy:
+    """
+    Proxy for plugin configuration access (global and per-method).
+
+    Allows both global and per-method configuration:
+        sw.logging.configure.flags = 'print,enabled'
+        sw.logging.configure['calculate'].flags = 'time'
+    """
+
+    def __init__(self, plugin: "BasePlugin"):
+        object.__setattr__(self, "_plugin", plugin)
+
+    @property
+    def flags(self) -> str:
+        """Get global flags (only active boolean flags)."""
+        cfg = self._plugin._global_config
+        enabled = [k for k, v in cfg.items() if isinstance(v, bool) and v]
+        return ",".join(enabled)
+
+    @flags.setter
+    def flags(self, value: str):
+        """Set global flags."""
+        self._plugin._update_config(flags=value)
+
+    @property
+    def config(self) -> dict:
+        """Get full global configuration."""
+        return dict(self._plugin._global_config)
+
+    def __getattr__(self, name: str):
+        """Get any global config parameter."""
+        if name.startswith("_"):
+            return object.__getattribute__(self, name)
+        return self._plugin._global_config.get(name)
+
+    def __setattr__(self, name: str, value: Any):
+        """Set any global config parameter."""
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            self._plugin._update_config(**{name: value})
+
+    def __getitem__(self, method_names: str) -> MethodConfigProxy:
+        """
+        Access per-method configuration.
+
+        Args:
+            method_names: Single method or comma-separated ('calculate,clear')
+        """
+        return MethodConfigProxy(self._plugin, method_names)
+
+
+# ============================================================
 # PLUGIN BASE
 # ============================================================
 
 
 class BasePlugin:
     """
-    Base class for Switcher plugins.
+    Base class for Switcher plugins with Pydantic configuration support.
 
     Plugins have two main hooks:
 
-    - on_decore(switch, func, entry):
+    - on_decorate(switch, func, entry):
         Called once at decoration time. It can mutate entry.metadata.
     - wrap_handler(switch, entry, call_next):
         Called at wrapper-chain construction time.
         Returns a wrapper callable that must call call_next.
+
+    Configuration:
+        Subclasses can optionally define config_model (Pydantic BaseModel).
+        If defined, automatic flags parsing is enabled for boolean fields.
+
+    Examples:
+        # Using flags
+        plugin = LoggingPlugin(name='logger', flags='print,enabled')
+
+        # Using kwargs
+        plugin = LoggingPlugin(name='logger', print=True, enabled=True)
+
+        # Runtime configuration
+        plugin.configure.flags = 'log,time'
+        plugin.configure['method'].flags = 'enabled:off'
     """
 
-    def __init__(self, name: Optional[str] = None, **config: Any):
+    config_model: Optional[Type[Any]] = None  # Subclasses can define Pydantic model
+
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        flags: Optional[str] = None,
+        method_config: Optional[Dict[str, Any]] = None,
+        **config: Any,
+    ):
+        """
+        Initialize plugin with configuration.
+
+        Args:
+            name: Plugin instance name (default: class name)
+            description: Plugin description
+            flags: Flags string for boolean parameters ('flag1,flag2,flag3:off')
+            method_config: Dict of per-method configurations
+            **config: Additional config parameters
+        """
         self.name = name or self.__class__.__name__
-        self._global_config: Dict[str, Any] = dict(config)
+        self.description = description
+
+        # Parse flags if provided
+        if flags:
+            parsed_flags = self._parse_flags(flags)
+            config.update(parsed_flags)
+
+        # Validate with Pydantic if config_model defined
+        if self.config_model is not None:
+            try:
+                from pydantic import BaseModel
+
+                if isinstance(self.config_model, type) and issubclass(self.config_model, BaseModel):
+                    # Validate and extract config
+                    validated = self.config_model(**config)
+                    self._global_config = validated.model_dump(exclude={"methods"})
+                else:
+                    self._global_config = dict(config)
+            except ImportError:
+                # Pydantic not available, use dict
+                self._global_config = dict(config)
+        else:
+            self._global_config = dict(config)
+
         self._handler_configs: Dict[str, Dict[str, Any]] = {}
-        # Keep backward compatibility for plugins that accessed self.config directly
+
+        # Keep backward compatibility
         self.config = self._global_config
+
+        # Process method_config if provided
+        if method_config:
+            self._parse_method_configs(method_config)
+
+    def _parse_flags(self, flags: str) -> Dict[str, bool]:
+        """
+        Parse flags string into config dict.
+
+        Automatically maps flags to boolean fields in config_model (if defined).
+
+        Syntax:
+            'flag1,flag2' → flag1=True, flag2=True
+            'flag1:off,flag2' → flag1=False, flag2=True
+        """
+        result = {}
+
+        # Get boolean fields from config_model if available
+        bool_fields = set()
+        if self.config_model is not None:
+            try:
+                from pydantic import BaseModel
+
+                if isinstance(self.config_model, type) and issubclass(self.config_model, BaseModel):
+                    bool_fields = {
+                        name
+                        for name, field_info in self.config_model.model_fields.items()
+                        if field_info.annotation in (bool, Optional[bool])
+                    }
+            except (ImportError, AttributeError):
+                pass
+
+        # Parse flags
+        for flag in flags.split(","):
+            flag = flag.strip()
+            if not flag:
+                continue
+
+            if ":off" in flag:
+                field_name = flag.replace(":off", "").strip()
+                # If config_model exists, only set if it's a valid field
+                if not bool_fields or field_name in bool_fields:
+                    result[field_name] = False
+            else:
+                # If config_model exists, only set if it's a valid field
+                if not bool_fields or flag in bool_fields:
+                    result[flag] = True
+
+        return result
+
+    def _parse_method_configs(self, method_config: Dict[str, Any]):
+        """Parse method_config dict with support for strings, dicts, and Pydantic models."""
+        for method_names, method_cfg in method_config.items():
+            # Determine config type
+            if isinstance(method_cfg, str):
+                # Flags string → parse and merge with global
+                parsed = self._parse_flags(method_cfg)
+                merged = {**self._global_config, **parsed}
+            elif isinstance(method_cfg, dict):
+                # Dict → merge with global
+                merged = {**self._global_config, **method_cfg}
+            else:
+                # Assume it's a Pydantic model or similar
+                try:
+                    merged = method_cfg.model_dump(exclude={"methods"})
+                except AttributeError:
+                    merged = dict(method_cfg) if hasattr(method_cfg, "__iter__") else {}
+
+            # Support comma-separated method names
+            for method_name in method_names.split(","):
+                method_name = method_name.strip()
+                if method_name:
+                    self._handler_configs[method_name] = merged
 
     # ------------------------------------------------------------
     # Configuration helpers
     # ------------------------------------------------------------
-    def configure(self, *method_names: str, **config: Any) -> None:
-        """Update global or per-method configuration.
-
-        Without method names, updates global config; otherwise stores per-method overrides.
+    def _update_config(
+        self, *method_names: str, flags: Optional[str] = None, **config: Any
+    ) -> None:
         """
+        Internal method to update global or per-method configuration.
+
+        Args:
+            *method_names: If provided, update per-method config; otherwise update global
+            flags: Flags string for boolean parameters
+            **config: Config parameters to update
+        """
+        # Parse flags if provided
+        if flags:
+            parsed = self._parse_flags(flags)
+            config.update(parsed)
+
         if not method_names:
             self._global_config.update(config)
             return
+
         for name in method_names:
             bucket = self._handler_configs.setdefault(name, {})
             bucket.update(config)
+
+    @property
+    def configure(self) -> ConfigureProxy:
+        """
+        Access configuration proxy for runtime config changes.
+
+        Examples:
+            plugin.configure.flags = 'enabled,time'
+            plugin.configure.level = 'DEBUG'
+            plugin.configure['method'].flags = 'enabled:off'
+        """
+        return ConfigureProxy(self)
 
     def get_config(self, method_name: Optional[str] = None) -> Dict[str, Any]:
         """Return merged configuration for the given method name."""
@@ -259,6 +526,7 @@ class Switcher:
 
         self._local_plugins: List[BasePlugin] = []
         self._local_plugin_specs: List[_PluginSpec] = []
+        self._plugins_by_name: Dict[str, BasePlugin] = {}  # For attribute access
         self._inherited_plugins: List[BasePlugin] = []
         self._inherited_plugin_specs: List[_PluginSpec] = []
         self._inherit_plugins: bool = True if inherit_plugins is None else bool(inherit_plugins)
@@ -379,8 +647,11 @@ class Switcher:
             self._inherit_plugins = False
             self._local_plugins.clear()
             self._local_plugin_specs.clear()
+            self._plugins_by_name.clear()
         self._local_plugins.append(p)
         self._local_plugin_specs.append(spec)
+        # Store plugin by name for attribute access (sw.logging, etc.)
+        self._plugins_by_name[p.name] = p
         return self
 
     def iter_plugins(self) -> List[BasePlugin]:

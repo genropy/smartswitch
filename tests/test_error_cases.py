@@ -16,13 +16,13 @@ class TestPluginErrorHandling(unittest.TestCase):
 
     def test_register_non_plugin_class(self):
         """Test that registering non-BasePlugin class raises TypeError."""
-        
+
         class NotAPlugin:
             pass
-        
+
         with self.assertRaises(TypeError) as cm:
             Switcher.register_plugin("invalid", NotAPlugin)
-        
+
         self.assertIn("BasePlugin subclass", str(cm.exception))
 
     def test_plug_with_unknown_plugin_name(self):
@@ -38,13 +38,13 @@ class TestPluginErrorHandling(unittest.TestCase):
     def test_plug_with_invalid_class(self):
         """Test that plug() with non-plugin class raises TypeError."""
         sw = Switcher()
-        
+
         class NotAPlugin:
             pass
-        
+
         with self.assertRaises(TypeError) as cm:
             sw.plug(NotAPlugin)
-        
+
         self.assertIn("BasePlugin", str(cm.exception))
 
 
@@ -54,19 +54,19 @@ class TestSwitcherChildErrors(unittest.TestCase):
     def test_get_nonexistent_child(self):
         """Test that getting nonexistent child raises KeyError."""
         sw = Switcher("parent")
-        
+
         with self.assertRaises(KeyError) as cm:
             sw.get_child("nonexistent")
-        
+
         self.assertIn("No child switch named 'nonexistent'", str(cm.exception))
 
     def test_add_switch_to_itself(self):
         """Test that adding switch to itself raises ValueError."""
         sw = Switcher("self")
-        
+
         with self.assertRaises(ValueError) as cm:
             sw.add_child(sw)
-        
+
         self.assertIn("Cannot attach a switch to itself", str(cm.exception))
 
     def test_child_name_collision(self):
@@ -74,12 +74,12 @@ class TestSwitcherChildErrors(unittest.TestCase):
         parent = Switcher("parent")
         child1 = Switcher("child")
         child2 = Switcher("another")
-        
+
         parent.add_child(child1, name="duplicate")
-        
+
         with self.assertRaises(ValueError) as cm:
             parent.add_child(child2, name="duplicate")
-        
+
         self.assertIn("Child name collision", str(cm.exception))
 
 
@@ -89,13 +89,13 @@ class TestSwitcherMethods(unittest.TestCase):
     def test_describe(self):
         """Test describe() method returns correct structure."""
         sw = Switcher("test")
-        
+
         @sw
         def handler(x):
             return x * 2
-        
+
         desc = sw.describe()
-        
+
         self.assertEqual(desc["name"], "test")
         self.assertIn("methods", desc)
         self.assertIn("handler", desc["methods"])
@@ -127,25 +127,25 @@ class TestSwitcherMethods(unittest.TestCase):
     def test_iter_plugins_empty(self):
         """Test iter_plugins() on Switcher without plugins."""
         sw = Switcher()
-        
+
         plugins = list(sw.iter_plugins())
         self.assertEqual(len(plugins), 0)
 
     def test_iter_plugins_with_plugins(self):
         """Test iter_plugins() returns all plugins."""
-        
+
         class Plugin1(BasePlugin):
             def wrap_handler(self, switch, entry, call_next):
                 return call_next
-        
+
         class Plugin2(BasePlugin):
             def wrap_handler(self, switch, entry, call_next):
                 return call_next
-        
+
         sw = Switcher()
         sw.plug(Plugin1, name="p1")
         sw.plug(Plugin2, name="p2")
-        
+
         plugins = list(sw.iter_plugins())
         self.assertEqual(len(plugins), 2)
         names = [p.name for p in plugins]
@@ -158,19 +158,19 @@ class TestPluginConfiguration(unittest.TestCase):
 
     def test_plugin_config_update(self):
         """Test that plugging instance updates its config."""
-        
+
         class ConfigPlugin(BasePlugin):
             def wrap_handler(self, switch, entry, call_next):
                 return call_next
-        
+
         # Create plugin with initial config
         plugin = ConfigPlugin(name="test", param1="value1")
         self.assertEqual(plugin.config["param1"], "value1")
-        
+
         # Plug it with additional config
         sw = Switcher()
         sw.plug(plugin, param2="value2")
-        
+
         # Config should be updated
         self.assertEqual(plugin.config["param1"], "value1")
         self.assertEqual(plugin.config["param2"], "value2")

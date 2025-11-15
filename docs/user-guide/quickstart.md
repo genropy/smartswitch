@@ -151,7 +151,7 @@ for child in api.main._children.values():
 from smartswitch import Switcher
 
 # Add logging plugin
-sw = Switcher().plug('logging', mode='print,after,time')
+sw = Switcher().plug('logging', flags='print,enabled,after,time')
 
 @sw
 def calculate(x, y):
@@ -206,9 +206,9 @@ from smartswitch import Switcher
 
 # Chain plugins - they execute in order
 sw = (Switcher()
-      .plug('logging', mode='print')
-      .plug(ValidationPlugin())
-      .plug(CachePlugin(ttl=300)))
+      .plug('logging', flags='print,enabled')
+      .plug('validation')
+      .plug('cache'))
 
 @sw
 def expensive_operation(x):
@@ -233,7 +233,7 @@ Combining both patterns for a practical application:
 from smartswitch import Switcher
 
 # Create API with logging
-api = Switcher(name="api").plug('logging', mode='print,after,time')
+api = Switcher(name="api").plug('logging', flags='print,enabled,after,time')
 
 @api('list_users')
 def get_users(page=1):
@@ -314,8 +314,8 @@ sw = Switcher(name="api", prefix="api_")  # with name and prefix
 sw = Switcher(parent=parent_sw)  # with parent
 
 # Add plugins
-sw.plug('logging', mode='print,after,time')
-sw.plug(CustomPlugin(config="value"))
+sw.plug('logging', flags='print,enabled,after,time')
+sw.plug('custom')  # Assuming CustomPlugin is registered
 
 # Register handlers
 @sw

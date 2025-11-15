@@ -218,49 +218,94 @@ svc.ops('process')(data)  # 'self' bound automatically
 
 **Methods:** Same as Switcher, with automatic `self` binding.
 
-## BasePlugin Class (v0.5.0+)
+## BasePlugin Class (v0.5.0+, updated v0.10.0)
 
 Base class for creating custom plugins that extend Switcher functionality.
 
+**New in v0.10.0**: Pydantic-based configuration system with `config_model`, `flags` parameter, and runtime configuration via `.configure` property.
+
+### Configuration System (v0.10.0+)
+
+Plugins can define a `config_model` (Pydantic BaseModel) for validated configuration:
+
+```python
+from pydantic import BaseModel, Field
+
+class MyPluginConfig(BaseModel):
+    enabled: bool = Field(default=True, description="Enable plugin")
+    verbose: bool = Field(default=False, description="Verbose output")
+    timeout: int = Field(default=30, description="Timeout in seconds")
+
+class MyPlugin(BasePlugin):
+    config_model = MyPluginConfig
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+```
+
+**Using flags for boolean parameters:**
+```python
+# Register plugin
+Switcher.register_plugin('myplugin', MyPlugin)
+
+# Configure with flags
+sw = Switcher().plug('myplugin', flags='enabled,verbose')
+
+# Runtime configuration
+sw.myplugin.configure.flags = 'enabled,verbose:off'
+sw.myplugin.configure.timeout = 60
+```
+
 ### Methods to Override
 
-#### `on_decorate(func, name, switcher, metadata)`
+#### `on_decorate(switch, func, entry)`
 
 Called when a handler is decorated, **before** wrapping. Use for initialization, validation, or storing metadata.
 
 **Parameters:**
+- `switch`: The Switcher instance
 - `func`: The original function being decorated
-- `name`: The registered name for this handler
-- `switcher`: The Switcher instance
-- `metadata`: Dict for storing plugin-specific data (accessible as `func._plugin_meta`)
+- `entry`: MethodEntry object with handler metadata (name, func, etc.)
 
 **Example:**
 ```python
 class MetadataPlugin(BasePlugin):
-    def on_decorate(self, func, name, switcher, metadata):
-        metadata['registered_at'] = time.time()
-        metadata['version'] = '1.0'
+    def on_decorate(self, switch, func, entry):
+        # Store registration time in entry metadata
+        if not hasattr(entry, '_plugin_meta'):
+            entry._plugin_meta = {}
+        entry._plugin_meta['registered_at'] = time.time()
 ```
 
-#### `wrap_handler(func, name, switcher)`
+#### `wrap_handler(switch, entry, call_next)`
 
-Called to wrap the handler function. Return a wrapper function that calls the original.
+Called to wrap the handler function. Return a wrapper function that calls `call_next()`.
 
 **Parameters:**
-- `func`: The original function
-- `name`: The registered name
-- `switcher`: The Switcher instance
+- `switch`: The Switcher instance
+- `entry`: MethodEntry object with handler metadata
+- `call_next`: The next layer in the middleware chain (call this to execute handler)
 
 **Returns:** Wrapped function
 
 **Example:**
 ```python
 class LoggingPlugin(BasePlugin):
-    def wrap_handler(self, func, name, switcher):
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
-            print(f"Calling {name}")
-            result = func(*args, **kwargs)
-            print(f"Done: {name}")
+            # Get runtime config (supports dynamic changes)
+            cfg = self.get_config(handler_name)
+
+            if cfg.get('enabled'):
+                print(f"→ Calling {handler_name}")
+
+            result = call_next(*args, **kwargs)
+
+            if cfg.get('enabled'):
+                print(f"← Done: {handler_name}")
+
             return result
         return wrapper
 ```
@@ -269,23 +314,49 @@ class LoggingPlugin(BasePlugin):
 
 ```python
 from smartswitch import Switcher, BasePlugin
+from pydantic import BaseModel, Field
 import time
 
-class TimingPlugin(BasePlugin):
-    def on_decorate(self, func, name, switcher, metadata):
-        # Store registration time
-        metadata['registered_at'] = time.time()
+# Define configuration model
+class TimingConfig(BaseModel):
+    enabled: bool = Field(default=True, description="Enable timing")
+    verbose: bool = Field(default=False, description="Show detailed timing")
 
-    def wrap_handler(self, func, name, switcher):
+class TimingPlugin(BasePlugin):
+    config_model = TimingConfig
+
+    def on_decorate(self, switch, func, entry):
+        # Store registration time in entry metadata
+        if not hasattr(entry, '_timing_meta'):
+            entry._timing_meta = {'registered_at': time.time()}
+
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
+            # Get runtime config
+            cfg = self.get_config(handler_name)
+
+            if not cfg.get('enabled'):
+                return call_next(*args, **kwargs)
+
             start = time.time()
-            result = func(*args, **kwargs)
+            result = call_next(*args, **kwargs)
             elapsed = time.time() - start
-            print(f"{name} took {elapsed:.4f}s")
+
+            if cfg.get('verbose'):
+                print(f"{handler_name} took {elapsed:.6f}s")
+            else:
+                print(f"{handler_name}: {elapsed:.4f}s")
+
             return result
         return wrapper
 
-sw = Switcher(plugins=[TimingPlugin()])
+# Register plugin globally
+Switcher.register_plugin('timing', TimingPlugin)
+
+# Use registered plugin
+sw = Switcher().plug('timing', flags='enabled,verbose')
 
 @sw
 def slow_operation():
@@ -293,9 +364,52 @@ def slow_operation():
     return "done"
 
 sw('slow_operation')()  # Prints timing
+
+# Runtime configuration changes
+sw.timing.configure.verbose = False
+sw('slow_operation')()  # Different format
 ```
 
 ## Built-in Plugins
+
+### LoggingPlugin (v0.4.0+, updated v0.10.0)
+
+Real-time call logging with flexible output options and runtime configuration.
+
+**Usage:**
+```python
+from smartswitch import Switcher
+
+# Register automatically on import (already registered)
+sw = Switcher().plug('logging', flags='print,enabled,after,time')
+
+@sw
+def process(data):
+    return data * 2
+
+sw('process')(42)
+# Output: ← process() → 84 (0.0001s)
+```
+
+**Configuration flags:**
+- `enabled` (default: False): Enable plugin
+- `print` (default: False): Output via print()
+- `log` (default: True): Output via Python logging
+- `before` (default: True): Show input parameters
+- `after` (default: False): Show return value
+- `time` (default: False): Show execution time
+
+**Runtime configuration:**
+```python
+# Change config globally
+sw.logging.configure.flags = 'print,enabled,before,after,time'
+
+# Per-method configuration
+sw.logging.configure['process'].flags = 'enabled:off'
+sw.logging.configure['critical_op'].flags = 'after,time'
+```
+
+**See full documentation:** [docs/plugins/logging.md](../docs/plugins/logging.md)
 
 ### PydanticPlugin (v0.5.0+)
 
@@ -309,9 +423,13 @@ pip install smartswitch[pydantic]
 **Usage:**
 ```python
 from smartswitch import Switcher
-from smartswitch.plugins import PydanticPlugin
 
-sw = Switcher(plugins=[PydanticPlugin()])
+# Register plugin first
+from smartswitch.plugins import PydanticPlugin
+Switcher.register_plugin('pydantic', PydanticPlugin)
+
+# Use by name
+sw = Switcher().plug('pydantic')
 
 @sw
 def create_user(name: str, age: int, email: str):
@@ -422,20 +540,40 @@ commands('start')()
 commands('stop')()
 ```
 
-### Plugin System
+### Plugin System with Chaining
 ```python
-plugins = Switcher(prefix='plugin_')
+from smartswitch import Switcher, BasePlugin
 
-@plugins
-def plugin_markdown(content):
-    return markdown.render(content)
+# Register custom plugins
+class CachePlugin(BasePlugin):
+    def wrap_handler(self, switch, entry, call_next):
+        cache = {}
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(kwargs.items()))
+            if key not in cache:
+                cache[key] = call_next(*args, **kwargs)
+            return cache[key]
+        return wrapper
 
-@plugins
-def plugin_syntax(content):
-    return highlight(content)
+class MetricsPlugin(BasePlugin):
+    def wrap_handler(self, switch, entry, call_next):
+        def wrapper(*args, **kwargs):
+            print(f"Metrics: {entry.name} called")
+            return call_next(*args, **kwargs)
+        return wrapper
 
-plugins('markdown')(content)
-plugins('syntax')(code)
+Switcher.register_plugin('cache', CachePlugin)
+Switcher.register_plugin('metrics', MetricsPlugin)
+
+# Chain multiple plugins
+sw = (Switcher()
+      .plug('logging', flags='print,enabled,after')
+      .plug('cache')
+      .plug('metrics'))
+
+@sw
+def expensive_operation(x):
+    return x * 2
 ```
 
 ### Hierarchical Organization
@@ -489,50 +627,15 @@ except TypeError as e:
 
 ## Version History
 
-- **0.9.2**: Documentation updates, removed obsolete features
-- **0.6.0**: Added plugin lifecycle hooks (`on_decorate()`), metadata sharing (`func._plugin_meta`)
-- **0.5.0**: Added plugin system with `BasePlugin`, global registry, `PydanticPlugin`
+- **0.10.0**: Pydantic-based plugin configuration system with runtime flexibility
+  - `flags` parameter for boolean settings
+  - Runtime configuration via `.configure` property
+  - Per-method configuration overrides
+  - LoggingPlugin with full Pydantic configuration
+- **0.6.0**: Plugin lifecycle hooks (`on_decorate()`), metadata sharing
+- **0.5.0**: Plugin system with `BasePlugin`, global registry, `PydanticPlugin`
 - **0.4.0**: Refactored core, improved type hints
-- **0.3.1**: Added dot notation for hierarchical access
-- **0.3.0**: Added `entries()` method, hierarchical structures
-- **0.2.x**: Added prefix-based auto-naming
+- **0.3.1**: Dot notation for hierarchical access
+- **0.3.0**: `entries()` method, hierarchical structures
+- **0.2.x**: Prefix-based auto-naming
 - **0.1.x**: Initial release with basic named dispatch
-
-## Migration Notes
-
-### From 0.8.x to 0.9.x
-
-**Removed features:**
-- `typerule` parameter (type-based dispatch)
-- `valrule` parameter (value-based dispatch)
-- Automatic rule-based dispatch
-
-**Migration:**
-- Use named dispatch only: `sw('handler_name')(args)`
-- For validation, use `PydanticPlugin`
-- For conditional logic, implement inside handlers or use separate functions
-
-**Example:**
-```python
-# Old (0.8.x) - NO LONGER WORKS
-@sw(typerule={'data': str})
-def process_string(data):
-    return data.upper()
-
-@sw(typerule={'data': int})
-def process_number(data):
-    return data * 2
-
-# New (0.9.x) - Use named dispatch
-@sw('process_string')
-def process_string(data: str):
-    return data.upper()
-
-@sw('process_number')
-def process_number(data: int):
-    return data * 2
-
-# Call explicitly by name
-sw('process_string')("hello")
-sw('process_number')(42)
-```

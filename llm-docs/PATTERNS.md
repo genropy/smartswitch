@@ -123,18 +123,42 @@ processor.commands('restart')(context)
 ### Request/Response Logging
 ```python
 from smartswitch import Switcher, BasePlugin
+from pydantic import BaseModel, Field
 
-class LoggingPlugin(BasePlugin):
-    def wrap_handler(self, func, name, switcher):
+class RequestLogConfig(BaseModel):
+    enabled: bool = Field(default=True, description="Enable logging")
+    show_args: bool = Field(default=True, description="Show arguments")
+    show_result: bool = Field(default=True, description="Show result")
+
+class RequestLogPlugin(BasePlugin):
+    config_model = RequestLogConfig
+
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
-            print(f"[{switcher.name}] Calling {name}")
-            print(f"  Args: {args}, Kwargs: {kwargs}")
-            result = func(*args, **kwargs)
-            print(f"  Result: {result}")
+            cfg = self.get_config(handler_name)
+
+            if not cfg.get('enabled'):
+                return call_next(*args, **kwargs)
+
+            if cfg.get('show_args'):
+                print(f"[{switch.name}] Calling {handler_name}")
+                print(f"  Args: {args}, Kwargs: {kwargs}")
+
+            result = call_next(*args, **kwargs)
+
+            if cfg.get('show_result'):
+                print(f"  Result: {result}")
+
             return result
         return wrapper
 
-api = Switcher(name="api", plugins=[LoggingPlugin()])
+# Register plugin
+Switcher.register_plugin('requestlog', RequestLogPlugin)
+
+# Use by name with flags
+api = Switcher(name="api").plug('requestlog', flags='enabled,show_args,show_result')
 
 @api
 def process_payment(amount, currency):
@@ -146,6 +170,10 @@ api('process_payment')(100, "USD")
 # [api] Calling process_payment
 #   Args: (100, 'USD'), Kwargs: {}
 #   Result: {'status': 'success', 'amount': 100, 'currency': 'USD'}
+
+# Runtime configuration
+api.requestlog.configure['process_payment'].flags = 'enabled,show_result'
+api('process_payment')(200, "EUR")  # Only shows result, not args
 ```
 
 ## Plugin Pattern - Validation
@@ -155,7 +183,11 @@ api('process_payment')(100, "USD")
 from smartswitch import Switcher
 from smartswitch.plugins import PydanticPlugin
 
-sw = Switcher(plugins=[PydanticPlugin()])
+# Register plugin first
+Switcher.register_plugin('pydantic', PydanticPlugin)
+
+# Use by name
+sw = Switcher().plug('pydantic')
 
 @sw
 def create_user(name: str, age: int, email: str):
@@ -175,25 +207,33 @@ except Exception as e:
 
 ### Initialization Hook
 ```python
-from smartswitch import BasePlugin
+from smartswitch import Switcher, BasePlugin
+import time
 
 class InitializerPlugin(BasePlugin):
-    def on_decorate(self, func, name, switcher, metadata):
+    def on_decorate(self, switch, func, entry):
         """Called when handler is decorated (before wrapping)."""
-        print(f"Registered {name} in {switcher.name}")
-        # Can store metadata for later use
-        metadata['registered_at'] = time.time()
+        print(f"Registered {entry.name} in {switch.name}")
+        # Store metadata in entry
+        if not hasattr(entry, '_init_meta'):
+            entry._init_meta = {}
+        entry._init_meta['registered_at'] = time.time()
 
-    def wrap_handler(self, func, name, switcher):
+    def wrap_handler(self, switch, entry, call_next):
         """Called to wrap the handler."""
         def wrapper(*args, **kwargs):
             # Access metadata stored during on_decorate
-            registered_at = func._plugin_meta.get('registered_at')
-            print(f"Handler registered at {registered_at}")
-            return func(*args, **kwargs)
+            if hasattr(entry, '_init_meta'):
+                registered_at = entry._init_meta.get('registered_at')
+                print(f"Handler registered at {registered_at}")
+            return call_next(*args, **kwargs)
         return wrapper
 
-sw = Switcher(plugins=[InitializerPlugin()])
+# Register plugin
+Switcher.register_plugin('initializer', InitializerPlugin)
+
+# Use by name
+sw = Switcher().plug('initializer')
 
 @sw
 def process(data):
@@ -295,28 +335,58 @@ db.operations('load')("users", 123)
 ### Multiple Plugins Together
 ```python
 from smartswitch import Switcher, BasePlugin
+from pydantic import BaseModel, Field
+import time
+
+class TimingConfig(BaseModel):
+    enabled: bool = Field(default=True, description="Enable timing")
 
 class TimingPlugin(BasePlugin):
-    def wrap_handler(self, func, name, switcher):
+    config_model = TimingConfig
+
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
+            cfg = self.get_config(handler_name)
+            if not cfg.get('enabled'):
+                return call_next(*args, **kwargs)
+
             start = time.time()
-            result = func(*args, **kwargs)
+            result = call_next(*args, **kwargs)
             elapsed = time.time() - start
-            print(f"{name} took {elapsed:.4f}s")
+            print(f"{handler_name} took {elapsed:.4f}s")
             return result
         return wrapper
 
-class LoggingPlugin(BasePlugin):
-    def wrap_handler(self, func, name, switcher):
+class CallLogConfig(BaseModel):
+    enabled: bool = Field(default=True, description="Enable logging")
+
+class CallLogPlugin(BasePlugin):
+    config_model = CallLogConfig
+
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
-            print(f"Calling {name}")
-            result = func(*args, **kwargs)
-            print(f"Done: {name}")
+            cfg = self.get_config(handler_name)
+            if not cfg.get('enabled'):
+                return call_next(*args, **kwargs)
+
+            print(f"→ Calling {handler_name}")
+            result = call_next(*args, **kwargs)
+            print(f"← Done: {handler_name}")
             return result
         return wrapper
+
+# Register plugins
+Switcher.register_plugin('timing', TimingPlugin)
+Switcher.register_plugin('calllog', CallLogPlugin)
 
 # Chain plugins - applied in order
-sw = Switcher(plugins=[LoggingPlugin(), TimingPlugin()])
+sw = (Switcher()
+      .plug('calllog', flags='enabled')
+      .plug('timing', flags='enabled'))
 
 @sw
 def process(data):
@@ -325,9 +395,13 @@ def process(data):
 
 sw('process')("test")
 # Output:
-# Calling process
+# → Calling process
 # process took 0.1002s
-# Done: process
+# ← Done: process
+
+# Runtime configuration
+sw.calllog.configure['process'].enabled = False
+sw('process')("test")  # Only shows timing, not call log
 ```
 
 ## Best Practices

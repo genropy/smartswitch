@@ -2,7 +2,7 @@
 
 ## Overview
 
-SmartSwitch supports a flexible plugin system that allows you to extend handler functionality. Plugins can add logging, monitoring, type checking, async support, or any other cross-cutting concern.
+SmartSwitch supports a flexible plugin system that allows you to extend handler functionality. Plugins can add logging, monitoring, type checking, caching, validation, or any other cross-cutting concern.
 
 > **📖 Deep Dive**: For a comprehensive understanding of the middleware pattern behind plugins, including detailed execution flow diagrams and the reference LoggingPlugin implementation, see the [Middleware Pattern Guide](middleware.md).
 
@@ -15,37 +15,39 @@ SmartSwitch supports a flexible plugin system that allows you to extend handler 
 
 ## The Plugin Protocol
 
-All plugins must implement the `SwitcherPlugin` protocol:
+All plugins must implement the `SwitcherPlugin` protocol (updated in v0.10.0):
 
 ```python
 from typing import Callable, Protocol
 
 class SwitcherPlugin(Protocol):
-    """Protocol for SmartSwitch plugins (v0.6.0+)."""
+    """Protocol for SmartSwitch plugins (v0.6.0+, updated v0.10.0)."""
 
-    def on_decorate(self, func: Callable, switcher: "Switcher") -> None:
+    def on_decorate(self, switch: "Switcher", func: Callable, entry: "MethodEntry") -> None:
         """
-        Optional hook called during decoration, before wrap().
+        Optional hook called during decoration, before wrap_handler().
 
         Use this for expensive setup (model creation, compilation, etc.)
-        and to store metadata using self.metadata(func).
+        and to store metadata in entry.metadata.
 
         Args:
+            switch: The Switcher instance
             func: The handler function being decorated
-            switcher: The Switcher instance
+            entry: MethodEntry object with handler metadata
         """
         ...  # Optional - default no-op in BasePlugin
 
-    def wrap(self, func: Callable, switcher: "Switcher") -> Callable:
+    def wrap_handler(self, switch: "Switcher", entry: "MethodEntry", call_next: Callable) -> Callable:
         """
-        Wrap a handler function during registration.
+        Wrap a handler function using middleware pattern.
 
         Args:
-            func: The handler function being registered
-            switcher: The Switcher instance registering the handler
+            switch: The Switcher instance
+            entry: MethodEntry object with handler metadata
+            call_next: The next layer in the middleware chain
 
         Returns:
-            The function to be registered (original or wrapped)
+            Wrapped function that calls call_next()
         """
         ...  # Required
 ```
@@ -119,14 +121,14 @@ The return value (or exception) propagates back through the wrapper chain, allow
 from smartswitch import BasePlugin
 
 class MyPlugin(BasePlugin):
-    def on_decorate(self, func: Callable, switcher: "Switcher") -> None:
+    def on_decorate(self, switch: "Switcher", func: Callable, entry: "MethodEntry") -> None:
         """
-        Called ONCE during decoration, BEFORE wrap().
+        Called ONCE during decoration, BEFORE wrap_handler().
 
         Use this to:
         - Analyze function signature, type hints, docstring
         - Prepare expensive resources (models, compiled patterns, etc.)
-        - Store metadata using self.metadata(func)
+        - Store metadata in entry.metadata
         """
         # Access function metadata
         import inspect
@@ -135,40 +137,37 @@ class MyPlugin(BasePlugin):
         sig = inspect.signature(func)
         hints = get_type_hints(func)
 
-        # Store in OUR namespace using metadata() API
-        meta = self.metadata(func)
-        meta["signature"] = sig
-        meta["hints"] = hints
-        meta["analyzed"] = True
+        # Store in entry metadata under our plugin's namespace
+        if not hasattr(entry, '_myplugin_meta'):
+            entry._myplugin_meta = {}
+        entry._myplugin_meta["signature"] = sig
+        entry._myplugin_meta["hints"] = hints
+        entry._myplugin_meta["analyzed"] = True
 
-    def wrap(self, func: Callable, switcher: "Switcher") -> Callable:
+    def wrap_handler(self, switch: "Switcher", entry: "MethodEntry", call_next: Callable) -> Callable:
         """
         Called AFTER on_decorate().
 
         Can read metadata prepared in on_decorate().
         """
-        # Read pre-prepared metadata using metadata() API
-        meta = self.metadata(func)
-
-        @wraps(func)
         def wrapper(*args, **kwargs):
             # Use metadata during execution
-            if meta.get("analyzed"):
+            if hasattr(entry, '_myplugin_meta') and entry._myplugin_meta.get("analyzed"):
                 # Do something with prepared data
                 pass
-            return func(*args, **kwargs)
+            return call_next(*args, **kwargs)
 
         return wrapper
 ```
 
 ### Metadata Sharing Between Plugins
 
-**New in v0.6.0**: Plugins can share metadata using the `self.metadata()` API.
+**New in v0.6.0**: Plugins can share metadata using `entry` attributes or `entry.metadata` dict.
 
-**Important**: Each plugin has its own namespace in the metadata dictionary:
-- Key: `plugin_name` (e.g., `"pydantic"`, `"logging"`, `"myanalyzer"`)
-- Value: Dictionary with plugin-specific data
-- Access: `self.metadata(func)` for own namespace, `self.metadata(func, "other")` for others
+**Recommended Approach**: Store metadata as entry attributes with plugin-specific prefix:
+- Use `entry._pluginname_data` for plugin-specific data
+- Or use `entry.metadata['pluginname']` for dict-based storage
+- Later plugins can read earlier plugins' metadata
 
 **Why Namespacing Matters:**
 - Multiple plugins can store data without conflicts
@@ -179,39 +178,49 @@ class MyPlugin(BasePlugin):
 ```python
 class PydanticPlugin(BasePlugin):
     def on_decorate(self, switch, func, entry):
+        from typing import get_type_hints
+        from pydantic import create_model
+
         # Create Pydantic model from type hints
         hints = get_type_hints(func)
         validation_model = create_model(f"{func.__name__}_Model", **hints)
 
-        # Store in entry metadata under our plugin's namespace
-        entry.metadata.setdefault("pydantic", {})
-        entry.metadata["pydantic"]["model"] = validation_model
-        entry.metadata["pydantic"]["hints"] = hints
+        # Store in entry as attribute (recommended)
+        if not hasattr(entry, '_pydantic'):
+            entry._pydantic = {}
+        entry._pydantic["model"] = validation_model
+        entry._pydantic["hints"] = hints
 
 class FastAPIPlugin(BasePlugin):
-    def on_decorate(self, switch, func, entry):
-        # Read from PYDANTIC's namespace
-        pydantic_meta = entry.metadata.get("pydantic", {})
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
 
-        if pydantic_meta:
+    def on_decorate(self, switch, func, entry):
+        # Read from Pydantic plugin metadata
+        if hasattr(entry, '_pydantic'):
+            pydantic_meta = entry._pydantic
             # Use pre-created Pydantic model for FastAPI
             model = pydantic_meta["model"]
             self.app.post(f"/{func.__name__}", response_model=model)(func)
 
-        # Store in OUR namespace
-        entry.metadata.setdefault("fastapi", {})
-        entry.metadata["fastapi"]["registered"] = True
-        entry.metadata["fastapi"]["endpoint"] = f"/{func.__name__}"
+        # Store our own metadata
+        if not hasattr(entry, '_fastapi'):
+            entry._fastapi = {}
+        entry._fastapi["registered"] = True
+        entry._fastapi["endpoint"] = f"/{func.__name__}"
 
-# Usage - order matters!
-sw = Switcher().plug("pydantic").plug(FastAPIPlugin(app))
+# Usage - order matters! Pydantic must come before FastAPI
+# Register plugins
+Switcher.register_plugin("pydantic", PydanticPlugin)
+Switcher.register_plugin("fastapi", lambda app: FastAPIPlugin(app))
+
+sw = Switcher().plug("pydantic").plug("fastapi", app=my_app)
 ```
 
 **Key Points:**
-- Metadata is shared using `self.metadata(func)` API
-- `self.metadata(func)` accesses own namespace (auto-creates if needed)
-- `self.metadata(func, "other")` reads another plugin's namespace
-- Later plugins can read earlier plugins' metadata
+- Store metadata as `entry._pluginname_data` attributes
+- Later plugins can read earlier plugins' metadata by accessing entry attributes
 - Plugin order matters for metadata dependencies
 - Metadata is for immutable setup data (signatures, compiled patterns, models)
 
@@ -267,16 +276,16 @@ class MyPlugin(BasePlugin):
 ```python
 # User's application code
 from smartswitch import Switcher
-from smartasync import SmartAsyncPlugin  # External plugin
+from smartcache import SmartCachePlugin  # External plugin
 
 # USER registers the plugin to enable string-based loading
-Switcher.register_plugin("async", SmartAsyncPlugin)
+Switcher.register_plugin("cache", SmartCachePlugin)
 
 # Now can use same semantics as built-in plugins
-sw = Switcher().plug("async")
+sw = Switcher().plug("cache", ttl=300)
 
 # Without registration, would need:
-# sw = Switcher().plug(SmartAsyncPlugin())  # Different semantics
+# sw = Switcher().plug(SmartCachePlugin(ttl=300))  # Different semantics
 ```
 
 **Built-in plugins** are pre-registered:
@@ -313,8 +322,8 @@ class MetricsPlugin:
 class CachePlugin:
     plugin_name = "cache"     # ✅ Clear: caches results
 
-class AsyncPlugin:
-    plugin_name = "async"     # ✅ Clear: async support
+class ValidationPlugin:
+    plugin_name = "validation"  # ✅ Clear: validates inputs
 ```
 
 ### Why This Matters
@@ -335,35 +344,37 @@ When publishing plugin packages to PyPI:
 
 **Package name** (PyPI): Can reference ecosystem for discoverability
 
-- ✅ `smartasync` - OK for PyPI package name
+- ✅ `smartretry` - OK for PyPI package name
 - ✅ `gtext-cache` - OK for PyPI package name
 
 **Plugin name** (in code): Should describe functionality only
 
-- ✅ `plugin_name = "async"` - Clean attribute access
+- ✅ `plugin_name = "retry"` - Clean attribute access
 - ✅ `plugin_name = "cache"` - Clean attribute access
 
 **Example**:
 
 ```python
-# Package on PyPI: "smartasync"
-# pip install smartasync
+# Package on PyPI: "smartretry"
+# pip install smartretry
 
-from smartasync import SmartAsyncPlugin
+from smartretry import SmartRetryPlugin
 
-class SmartAsyncPlugin:
-    plugin_name = "async"  # ✅ Not "smartasync"!
+class SmartRetryPlugin(BasePlugin):
+    def __init__(self, **kwargs):
+        super().__init__(name="retry", **kwargs)  # ✅ Not "smartretry"!
 
 # Usage
-sw = Switcher().plug(SmartAsyncPlugin())
-sw.async.is_async('my_handler')  # ✅ Clean attribute name
+Switcher.register_plugin('retry', SmartRetryPlugin)
+sw = Switcher().plug('retry')
+sw.retry.set_max_attempts(3)  # ✅ Clean attribute name
 ```
 
 ### Naming Guidelines Summary
 
 1. **plugin_name**: Describes functionality (e.g., `"logger"`, `"cache"`, `"metrics"`)
-2. **Class name**: Can reference ecosystem (e.g., `SmartAsyncPlugin`, `GtextCachePlugin`)
-3. **PyPI package**: Can reference ecosystem (e.g., `smartasync`, `gtext-cache`)
+2. **Class name**: Can reference ecosystem (e.g., `SmartRetryPlugin`, `GtextCachePlugin`)
+3. **PyPI package**: Can reference ecosystem (e.g., `smartretry`, `gtext-cache`)
 4. **Attribute access**: Uses `plugin_name`, should be clean and concise
 
 ## Basic Plugin Example
@@ -371,25 +382,23 @@ sw.async.is_async('my_handler')  # ✅ Clean attribute name
 Here's a minimal plugin that tracks call counts:
 
 ```python
-from functools import wraps
+from smartswitch import Switcher, BasePlugin
 
-class CallCounterPlugin:
+class CallCounterPlugin(BasePlugin):
     """Plugin that counts handler calls."""
 
-    plugin_name = "counter"  # Access via sw.counter
-
-    def __init__(self):
+    def __init__(self, **kwargs):
+        super().__init__(name="counter", **kwargs)  # Access via sw.counter
         self._counts = {}
 
-    def wrap(self, func, switcher):
+    def wrap_handler(self, switch, entry, call_next):
         """Wrap function to count calls."""
-        handler_name = func.__name__
+        handler_name = entry.name
         self._counts[handler_name] = 0
 
-        @wraps(func)
         def wrapper(*args, **kwargs):
             self._counts[handler_name] += 1
-            return func(*args, **kwargs)
+            return call_next(*args, **kwargs)
 
         return wrapper
 
@@ -401,8 +410,11 @@ class CallCounterPlugin:
         """Reset all counts."""
         self._counts.clear()
 
+# Register plugin globally
+Switcher.register_plugin("counter", CallCounterPlugin)
+
 # Usage:
-sw = Switcher().plug(CallCounterPlugin())
+sw = Switcher().plug("counter")
 
 @sw
 def my_handler(x):
@@ -416,10 +428,14 @@ print(sw.counter.get_count('my_handler'))  # Output: 2
 
 ## Accessing the Plugin
 
-After registration with `.plug()`, your plugin is accessible via `__getattr__`:
+After registration with `.plug()`, your plugin is accessible via attribute access:
 
 ```python
-sw = Switcher().plug(MyPlugin())
+# Register plugin
+Switcher.register_plugin("myplugin", MyPlugin)
+
+# Use plugin
+sw = Switcher().plug("myplugin")
 
 # Access plugin methods:
 sw.myplugin.some_method()
@@ -428,71 +444,85 @@ sw.myplugin.another_method()
 
 ### Custom Plugin Names
 
-You can override the default name when registering:
+You can use a custom name when calling `.plug()`:
 
 ```python
-sw.plug(MyPlugin(), name='custom_name')
+# Register with one name
+Switcher.register_plugin("original", MyPlugin)
+
+# Can use with different instance name if plugin supports it
+sw.plug("original", name='custom_name')
 sw.custom_name.some_method()  # Access with custom name
 ```
 
-## Advanced Plugin Example: Async Support
+## Advanced Plugin Example: Retry Logic
 
-Here's a more complex example showing how to add async support to SmartSwitch:
+Here's a more complex example showing how to add retry logic with exponential backoff:
 
 ```python
-import asyncio
-from functools import wraps
-import inspect
+import time
+from smartswitch import Switcher, BasePlugin
+from pydantic import BaseModel, Field
 
-class AsyncPlugin:
-    """Plugin that enables async handler support."""
+class RetryConfig(BaseModel):
+    max_attempts: int = Field(default=3, description="Maximum retry attempts")
+    backoff: float = Field(default=1.0, description="Backoff multiplier")
+    exceptions: tuple = Field(default=(Exception,), description="Exceptions to retry")
 
-    plugin_name = "async_support"
+class RetryPlugin(BasePlugin):
+    """Plugin that retries failed operations with exponential backoff."""
 
-    def __init__(self):
-        self._async_handlers = set()
+    config_model = RetryConfig
 
-    def wrap(self, func, switcher):
-        """Wrap async functions for proper execution."""
-        # Check if function is async
-        if not inspect.iscoroutinefunction(func):
-            return func  # Not async, pass through
+    def wrap_handler(self, switch, entry, call_next):
+        """Wrap handler with retry logic."""
+        handler_name = entry.name
 
-        # Track this as an async handler
-        self._async_handlers.add(func.__name__)
+        def retry_wrapper(*args, **kwargs):
+            cfg = self.get_config(handler_name)
+            max_attempts = cfg.get('max_attempts', 3)
+            backoff = cfg.get('backoff', 1.0)
+            exceptions = cfg.get('exceptions', (Exception,))
 
-        @wraps(func)
-        def async_wrapper(*args, **kwargs):
-            """Wrapper that runs async function in event loop."""
-            coro = func(*args, **kwargs)
+            last_exception = None
+            for attempt in range(max_attempts):
+                try:
+                    return call_next(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        wait_time = backoff * (2 ** attempt)
+                        print(f"Retry {handler_name}: attempt {attempt + 1} failed, waiting {wait_time}s")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"Retry {handler_name}: all {max_attempts} attempts failed")
 
-            # Try to get running loop, or create new one
-            try:
-                loop = asyncio.get_running_loop()
-                # Already in async context, return coroutine
-                return coro
-            except RuntimeError:
-                # No loop, create one and run
-                return asyncio.run(coro)
+            # All retries exhausted
+            raise last_exception
 
-        return async_wrapper
+        return retry_wrapper
 
-    def is_async(self, handler: str) -> bool:
-        """Check if a handler is async."""
-        return handler in self._async_handlers
+# Register plugin
+Switcher.register_plugin("retry", RetryPlugin)
 
 # Usage:
-sw = Switcher().plug(AsyncPlugin())
+sw = Switcher().plug("retry", flags='')
 
 @sw
-async def fetch_data(url: str):
-    """Async handler that fetches data."""
-    # In real code: await aiohttp request
-    await asyncio.sleep(0.1)
-    return f"Data from {url}"
+def unstable_api_call(endpoint: str):
+    """Handler that might fail and needs retries."""
+    # Simulate flaky API
+    import random
+    if random.random() < 0.7:  # 70% failure rate
+        raise ConnectionError("API unavailable")
+    return f"Success: {endpoint}"
 
-# Call works seamlessly:
-result = sw('fetch_data')('https://example.com')
+# Configure per-method retries
+sw.retry.configure['unstable_api_call'].max_attempts = 5
+sw.retry.configure['unstable_api_call'].backoff = 0.5
+
+# Will retry up to 5 times with exponential backoff
+result = sw('unstable_api_call')('/users')
 ```
 
 ## Plugin Initialization Parameters
@@ -500,19 +530,24 @@ result = sw('fetch_data')('https://example.com')
 Plugins can accept configuration parameters:
 
 ```python
-class ConfigurablePlugin:
-    plugin_name = "config"
+from smartswitch import Switcher, BasePlugin
 
-    def __init__(self, option1: str, option2: int = 10):
+class ConfigurablePlugin(BasePlugin):
+    def __init__(self, option1: str, option2: int = 10, **kwargs):
+        super().__init__(name="config", **kwargs)
         self.option1 = option1
         self.option2 = option2
 
-    def wrap(self, func, switcher):
-        # Use self.option1 and self.option2
-        return func
+    def wrap_handler(self, switch, entry, call_next):
+        # Use self.option1 and self.option2 in wrapping logic
+        def wrapper(*args, **kwargs):
+            # Access configuration
+            return call_next(*args, **kwargs)
+        return wrapper
 
-# Usage:
-sw = Switcher().plug(ConfigurablePlugin(option1="value", option2=20))
+# Register and use:
+Switcher.register_plugin('config', ConfigurablePlugin)
+sw = Switcher().plug('config', option1="value", option2=20)
 ```
 
 ## Storing State
@@ -520,18 +555,20 @@ sw = Switcher().plug(ConfigurablePlugin(option1="value", option2=20))
 Plugins can store state and provide query methods:
 
 ```python
-class StatefulPlugin:
-    plugin_name = "stats"
+from smartswitch import Switcher, BasePlugin
+from functools import wraps
+import time
 
-    def __init__(self):
+class StatefulPlugin(BasePlugin):
+    def __init__(self, **kwargs):
+        super().__init__(name="stats", **kwargs)
         self._call_times = []
 
-    def wrap(self, func, switcher):
-        @wraps(func)
+    def wrap_handler(self, switch, entry, call_next):
+        @wraps(entry.func)
         def wrapper(*args, **kwargs):
-            import time
             start = time.time()
-            result = func(*args, **kwargs)
+            result = call_next(*args, **kwargs)
             elapsed = time.time() - start
             self._call_times.append(elapsed)
             return result
@@ -545,8 +582,9 @@ class StatefulPlugin:
         """Get total number of calls."""
         return len(self._call_times)
 
-# Usage:
-sw = Switcher().plug(StatefulPlugin())
+# Register and use:
+Switcher.register_plugin('stats', StatefulPlugin)
+sw = Switcher().plug('stats')
 
 @sw
 def handler():
@@ -565,106 +603,125 @@ Plugins can be chained together:
 
 ```python
 sw = (Switcher()
-      .plug('logging', mode='print')
-      .plug(AsyncPlugin())
-      .plug(CallCounterPlugin()))
+      .plug('logging', flags='print,enabled')
+      .plug('validation')
+      .plug('cache'))
 
 @sw
-async def my_handler(x):
+def expensive_computation(x):
+    import time
+    time.sleep(0.1)
     return x * 2
 
 # Handler is wrapped by all three plugins:
 # 1. LoggingPlugin tracks the call
-# 2. AsyncPlugin handles async execution
-# 3. CallCounterPlugin counts the call
+# 2. ValidationPlugin validates inputs
+# 3. CachePlugin caches results
 
-result = sw('my_handler')(5)
-print(sw.counter.get_count('my_handler'))  # From counter plugin
+result = sw('expensive_computation')(5)  # First call: slow
+result = sw('expensive_computation')(5)  # Second call: cached, fast
 ```
 
 ## Standard vs External Plugins
 
 **Standard plugins** (shipped with SmartSwitch):
-- Can be loaded by string name: `sw.plug('logging')`
+- Pre-registered, loaded by string name: `sw.plug('logging', flags='enabled')`
 - Registered via `Switcher.register_plugin()`
 - Examples: `logging`
 
 **External plugins** (third-party packages):
-- Must be imported and instantiated: `sw.plug(MyPlugin())`
+- Must be registered first, then used by name
 - Distributed as separate packages
-- Examples: `smartasync`, custom monitoring tools
+- Examples: `smartretry`, `smartcache`, custom monitoring tools
+
+**Example with external plugin**:
+```python
+from smartswitch import Switcher
+from smartretry import SmartRetryPlugin
+
+# Register the external plugin
+Switcher.register_plugin("retry", SmartRetryPlugin)
+
+# Use by name (recommended)
+sw = Switcher().plug("retry", max_attempts=3)
+```
 
 ### Creating an External Plugin Package
 
-For a package like `smartasync`, the structure would be:
+For a package like `smartretry`, the structure would be:
 
 ```
-smartasync/
+smartretry/
 ├── pyproject.toml
 ├── src/
-│   └── smartasync/
+│   └── smartretry/
 │       ├── __init__.py
 │       └── plugin.py
 └── tests/
     └── test_plugin.py
 ```
 
-**src/smartasync/__init__.py**:
+**src/smartretry/__init__.py**:
 ```python
-"""SmartAsync - Async support plugin for SmartSwitch."""
+"""SmartRetry - Retry logic plugin for SmartSwitch."""
 
-from .plugin import SmartAsyncPlugin
+from .plugin import SmartRetryPlugin
 
 __version__ = "0.1.0"
-__all__ = ["SmartAsyncPlugin"]
+__all__ = ["SmartRetryPlugin"]
 ```
 
-**src/smartasync/plugin.py**:
+**src/smartretry/plugin.py**:
 ```python
-"""SmartAsync Plugin implementation."""
+"""SmartRetry Plugin implementation."""
 
-import asyncio
-import inspect
-from functools import wraps
+import time
+from smartswitch import BasePlugin
+from pydantic import BaseModel, Field
 
-class SmartAsyncPlugin:
-    """Plugin that enables async handler support for SmartSwitch."""
+class RetryConfig(BaseModel):
+    max_attempts: int = Field(default=3)
+    backoff: float = Field(default=1.0)
 
-    plugin_name = "async_support"
+class SmartRetryPlugin(BasePlugin):
+    """Plugin that retries failed operations."""
 
-    def __init__(self, loop=None):
-        self._loop = loop
-        self._async_handlers = set()
+    config_model = RetryConfig
 
-    def wrap(self, func, switcher):
-        """Wrap async functions for proper execution."""
-        if not inspect.iscoroutinefunction(func):
-            return func
+    def wrap_handler(self, switch, entry, call_next):
+        """Wrap handler with retry logic."""
+        handler_name = entry.name
 
-        self._async_handlers.add(func.__name__)
+        def retry_wrapper(*args, **kwargs):
+            cfg = self.get_config(handler_name)
+            max_attempts = cfg.get('max_attempts', 3)
+            backoff = cfg.get('backoff', 1.0)
 
-        @wraps(func)
-        def async_wrapper(*args, **kwargs):
-            coro = func(*args, **kwargs)
-            loop = self._loop or asyncio.get_event_loop()
-            return loop.run_until_complete(coro)
+            for attempt in range(max_attempts):
+                try:
+                    return call_next(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    time.sleep(backoff * (2 ** attempt))
 
-        return async_wrapper
-
-    def is_async(self, handler: str) -> bool:
-        return handler in self._async_handlers
+        return retry_wrapper
 ```
 
 **Usage in user code**:
 ```python
 from smartswitch import Switcher
-from smartasync import SmartAsyncPlugin
+from smartretry import SmartRetryPlugin
 
-sw = Switcher().plug(SmartAsyncPlugin())
+# Register plugin
+Switcher.register_plugin("retry", SmartRetryPlugin)
+
+# Use by name
+sw = Switcher().plug("retry", max_attempts=5)
 
 @sw
-async def fetch_data(url: str):
-    # async implementation
+def flaky_api_call(url: str):
+    # May fail and needs retries
     pass
 ```
 
@@ -677,21 +734,25 @@ Always use `functools.wraps` to preserve function metadata:
 ```python
 from functools import wraps
 
-def wrap(self, func, switcher):
-    @wraps(func)  # Preserves __name__, __doc__, etc.
+def wrap_handler(self, switch, entry, call_next):
+    @wraps(entry.func)  # Preserves __name__, __doc__, etc.
     def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
+        return call_next(*args, **kwargs)
     return wrapper
 ```
 
 ### 2. Store Switcher Reference Carefully
 
-If you need the Switcher instance later, store it only once:
+If you need the Switcher instance later, store it in `on_decorate()`:
 
 ```python
-def wrap(self, func, switcher):
+def on_decorate(self, switch, func, entry):
     if self._switcher is None:
-        self._switcher = switcher
+        self._switcher = switch
+    # ... rest of setup
+
+def wrap_handler(self, switch, entry, call_next):
+    # Access self._switcher here
     # ... rest of implementation
 ```
 
@@ -700,10 +761,12 @@ def wrap(self, func, switcher):
 Design a clean API for users:
 
 ```python
-class MyPlugin:
-    def wrap(self, func, switcher):
+class MyPlugin(BasePlugin):
+    def wrap_handler(self, switch, entry, call_next):
         # Internal implementation
-        pass
+        def wrapper(*args, **kwargs):
+            return call_next(*args, **kwargs)
+        return wrapper
 
     # Public API methods:
     def get_stats(self):
@@ -798,38 +861,40 @@ A: Yes, but be careful. The `switcher` parameter gives you access to the Switche
 
 **Q: What's the execution order when multiple plugins are chained?**
 
-A: Plugins are applied in registration order. The function passes through each plugin's `wrap()` method sequentially:
+A: Plugins are applied in registration order. Each plugin's `wrap_handler()` creates a layer in the middleware chain:
 
 ```python
-sw.plug(Plugin1()).plug(Plugin2()).plug(Plugin3())
+sw.plug('plugin1').plug('plugin2').plug('plugin3')
 
-# Execution: Plugin1.wrap(Plugin2.wrap(Plugin3.wrap(func)))
+# Execution flows through the chain:
+# plugin1.wrap_handler() → plugin2.wrap_handler() → plugin3.wrap_handler() → original function
 ```
 
 **Q: Can I make a plugin that doesn't wrap the function?**
 
-A: Yes! Just return `func` unchanged. The plugin can still store information or register the function in internal data structures:
+A: Yes! Just return the original function via `call_next` unchanged. The plugin can still store information in the setup phase:
 
 ```python
-def wrap(self, func, switcher):
-    # Register function without wrapping
-    self._registered_functions.add(func.__name__)
-    return func  # Return unchanged
+def on_decorate(self, switch, func, entry):
+    # Register function during setup
+    self._registered_functions.add(entry.name)
+
+def wrap_handler(self, switch, entry, call_next):
+    # Return handler unchanged
+    return call_next
 ```
 
 **Q: How do I access plugin methods from wrapped functions?**
 
-A: Store the plugin instance during wrap and access it in the wrapper:
+A: Access `self` directly in the wrapper - it's already available:
 
 ```python
-def wrap(self, func, switcher):
-    plugin_instance = self
-
-    @wraps(func)
+def wrap_handler(self, switch, entry, call_next):
+    @wraps(entry.func)
     def wrapper(*args, **kwargs):
-        # Access plugin_instance here
-        plugin_instance.do_something()
-        return func(*args, **kwargs)
+        # Access self (the plugin instance) here
+        self.do_something()
+        return call_next(*args, **kwargs)
 
     return wrapper
 ```
@@ -845,10 +910,16 @@ def async_handler(func):
     return func
 
 # In plugin:
-def wrap(self, func, switcher):
+def on_decorate(self, switch, func, entry):
     if hasattr(func, '_is_async'):
+        # Store metadata about async function
+        entry.metadata['async'] = True
+
+def wrap_handler(self, switch, entry, call_next):
+    if entry.metadata.get('async'):
         # Handle async function
         pass
+    return call_next
 ```
 
 ## Summary

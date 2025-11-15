@@ -17,8 +17,8 @@ Plugins wrap handlers to add cross-cutting concerns like:
 ```python
 from smartswitch import Switcher
 
-# Enable built-in logging plugin
-sw = Switcher().plug("logging", mode="print")
+# Enable built-in logging plugin (v0.10.0+ uses flags)
+sw = Switcher().plug("logging", flags="print,enabled,after")
 
 @sw
 def my_handler(x: int) -> int:
@@ -26,9 +26,10 @@ def my_handler(x: int) -> int:
 
 # Call handler - automatically logged
 result = sw("my_handler")(5)
+# Output: ← my_handler() → 10
 
-# Query history
-print(history[0])  # {'handler': 'my_handler', 'result': 10, ...}
+# Runtime configuration
+sw.logging.configure.flags = "print,enabled,before,after,time"
 ```
 
 ## Built-in Plugins

@@ -64,26 +64,44 @@ def handle_refund(amount):
 handlers('payment')(100)
 ```
 
-### 4. Plugin System (v0.5.0+)
+### 4. Plugin System (v0.5.0+, updated v0.10.0)
 ```python
 from smartswitch import Switcher, BasePlugin
+from pydantic import BaseModel, Field
+
+# Define configuration with Pydantic
+class LogConfig(BaseModel):
+    enabled: bool = Field(default=True)
+    verbose: bool = Field(default=False)
 
 class LoggingPlugin(BasePlugin):
-    def wrap_handler(self, func, name, switcher):
+    config_model = LogConfig
+
+    def wrap_handler(self, switch, entry, call_next):
+        handler_name = entry.name
+
         def wrapper(*args, **kwargs):
-            print(f"Calling {name}")
-            result = func(*args, **kwargs)
-            print(f"Result: {result}")
+            cfg = self.get_config(handler_name)
+            if cfg.get('enabled'):
+                print(f"→ Calling {handler_name}")
+            result = call_next(*args, **kwargs)
+            if cfg.get('verbose'):
+                print(f"← Result: {result}")
             return result
         return wrapper
 
-sw = Switcher(plugins=[LoggingPlugin()])
+# Register plugin
+Switcher.register_plugin('mylog', LoggingPlugin)
+
+# Use with flags
+sw = Switcher().plug('mylog', flags='enabled,verbose')
 
 @sw
 def process(data):
     return f"Processed: {data}"
 
-sw('process')("test")  # Logs before and after
+sw('process')("test")  # Logs with config
+# Runtime config: sw.mylog.configure.verbose = False
 ```
 
 ## Method Binding (Class Usage)
@@ -107,7 +125,9 @@ svc.ops('save')("data")  # 'self' bound automatically
 1. **Decorator registration** = module-level (thread-safe)
 2. **Handler dispatch** = runtime (fully thread-safe)
 3. **Named dispatch only** - No automatic rule-based dispatch
-4. **Plugin hooks**: `on_decorate()` and `wrap_handler()`
+4. **Plugin hooks**: `on_decorate(switch, func, entry)` and `wrap_handler(switch, entry, call_next)`
+5. **Plugin registration**: Use `Switcher.register_plugin(name, PluginClass)` then `.plug(name, flags=...)`
+6. **Plugin config** (v0.10.0+): Pydantic-based with runtime changes via `.configure`
 
 ## Common Use Cases
 
@@ -133,7 +153,13 @@ For complete documentation including plugin system, see `docs/` directory:
 - Examples: `docs/examples/`
 
 ## Version
-Current: 0.9.2 (Python 3.10+)
+Current: 0.10.0 (Python 3.10+)
+
+**v0.10.0 highlights**:
+- Pydantic-based plugin configuration system
+- Runtime configuration with `.configure` property
+- `flags` parameter for boolean settings
+- Per-method configuration overrides
 
 ## Performance
 ~2μs dispatch overhead. Negligible for typical business logic (DB, API calls, etc.)

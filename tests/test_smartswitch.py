@@ -217,7 +217,7 @@ class TestSwitcher(unittest.TestCase):
             def do_block(self, x):
                 return f"block:{x}"
 
-        Owner.gate.plugin("GatePlugin").configure("do_block", blocked=True)
+        Owner.gate.plugin("GatePlugin").configure["do_block"].blocked = True
         obj = Owner()
         self.assertEqual(Owner.gate("do_run")(obj, 1), "run:1")
         with self.assertRaises(RuntimeError):
@@ -232,11 +232,11 @@ class TestSwitcher(unittest.TestCase):
             def do_stable(self, x):
                 return f"stable:{x}"
 
-        Owner.gate.plugin("GatePlugin").configure(blocked=True)
+        Owner.gate.plugin("GatePlugin").configure.blocked = True
         owner = Owner()
         with self.assertRaises(RuntimeError):
             Owner.gate("do_stable")(owner, 1)
-        Owner.gate.plugin("GatePlugin").configure("do_stable", enabled=False)
+        Owner.gate.plugin("GatePlugin").configure["do_stable"].enabled = False
         self.assertEqual(Owner.gate("do_stable")(owner, 2), "stable:2")
 
     def test_add_child_discovers_switchers_on_object(self):

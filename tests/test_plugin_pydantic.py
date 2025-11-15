@@ -268,7 +268,7 @@ class TestPydanticPluginStacking:
 
     def test_pydantic_with_logging(self, capsys):
         """Test combining Pydantic validation with logging."""
-        sw = Switcher().plug("logging", mode="print,after").plug("pydantic")
+        sw = Switcher().plug("logging", flags="print,enabled,before:off,after").plug("pydantic")
 
         @sw
         def add(x: int, y: int) -> int:
@@ -283,7 +283,7 @@ class TestPydanticPluginStacking:
 
     def test_validation_error_logged(self, capsys):
         """Test that validation errors are logged by LoggingPlugin."""
-        sw = Switcher().plug("logging", mode="print,after").plug("pydantic")
+        sw = Switcher().plug("logging", flags="print,enabled,before:off,after").plug("pydantic")
 
         @sw
         def strict_func(x: int) -> int:
@@ -314,7 +314,7 @@ class TestPydanticPluginConfigure:
             sw("strict_func")("not a number")
 
         # Disable validation globally
-        sw.pydantic.configure(enabled=False)
+        sw.pydantic.configure.enabled = False
 
         # Now validation is bypassed - string passes through
         # String * 2 in Python = concatenation, not TypeError
@@ -338,7 +338,7 @@ class TestPydanticPluginConfigure:
         assert sw("handler2")(5) == 15
 
         # Disable validation only for handler1
-        sw.pydantic.configure("handler1", enabled=False)
+        sw.pydantic.configure["handler1"].enabled = False
 
         # handler1 no longer validates (passes string through)
         result = sw("handler1")("abc")
@@ -361,12 +361,12 @@ class TestPydanticPluginConfigure:
             sw("my_func")("invalid")
 
         # Disable - validation bypassed
-        sw.pydantic.configure("my_func", enabled=False)
+        sw.pydantic.configure["my_func"].enabled = False
         result = sw("my_func")("test")
         assert result == "testtest"  # No validation
 
         # Re-enable
-        sw.pydantic.configure("my_func", enabled=True)
+        sw.pydantic.configure["my_func"].enabled = True
         with pytest.raises(ValidationError):  # Validation is back
             sw("my_func")("invalid")
 
@@ -387,7 +387,8 @@ class TestPydanticPluginConfigure:
             return x * 4
 
         # Disable validation for func1 and func2 only
-        sw.pydantic.configure("func1", "func2", enabled=False)
+        sw.pydantic.configure["func1"].enabled = False
+        sw.pydantic.configure["func2"].enabled = False
 
         # func1 and func2 don't validate - strings pass through
         assert sw("func1")("x") == "xx"
@@ -411,7 +412,9 @@ class TestPydanticPluginConfigure:
         assert config.get("enabled", True) is True
 
         # Override for specific handler
-        sw.pydantic.configure("handler1", handler_param="handler_value", enabled=False)
+        proxy = sw.pydantic.configure["handler1"]
+        proxy.handler_param = "handler_value"
+        proxy.enabled = False
         config = sw.pydantic.get_config("handler1")
         assert config["global_param"] == "global_value"  # Still has global
         assert config["handler_param"] == "handler_value"  # Has override
@@ -429,11 +432,11 @@ class TestPydanticPluginConfigure:
         assert sw.pydantic.is_enabled_for("my_handler") is True
 
         # Disable
-        sw.pydantic.configure("my_handler", enabled=False)
+        sw.pydantic.configure["my_handler"].enabled = False
         assert sw.pydantic.is_enabled_for("my_handler") is False
 
         # Re-enable
-        sw.pydantic.configure("my_handler", enabled=True)
+        sw.pydantic.configure["my_handler"].enabled = True
         assert sw.pydantic.is_enabled_for("my_handler") is True
 
     def test_plugin_name_property(self):
