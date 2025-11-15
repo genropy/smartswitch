@@ -93,11 +93,11 @@ class LoggingPlugin(BasePlugin):
         super().__init__(name=name or "logger", **config)
 
         # Parse mode flags
-        flags = set(f.strip() for f in mode.split(','))
+        flags = set(f.strip() for f in mode.split(","))
 
         # Output destination (required, mutually exclusive)
-        self.use_print = 'print' in flags
-        self.use_log = 'log' in flags
+        self.use_print = "print" in flags
+        self.use_log = "log" in flags
 
         if not self.use_print and not self.use_log:
             raise ValueError("mode must include 'print' or 'log'")
@@ -105,9 +105,9 @@ class LoggingPlugin(BasePlugin):
             raise ValueError("mode cannot include both 'print' and 'log'")
 
         # Content flags (optional, combinable)
-        self.show_before = 'before' in flags
-        self.show_after = 'after' in flags
-        self.show_time = 'time' in flags
+        self.show_before = "before" in flags
+        self.show_after = "after" in flags
+        self.show_time = "time" in flags
 
         # Default: if no content flags, show both before and after
         if not self.show_before and not self.show_after:
@@ -116,7 +116,7 @@ class LoggingPlugin(BasePlugin):
 
         self._logger = logger or logging.getLogger("smartswitch")
 
-    def _output(self, message: str, level: str = 'info'):
+    def _output(self, message: str, level: str = "info"):
         """
         Output message with auto-fallback.
 
@@ -140,7 +140,7 @@ class LoggingPlugin(BasePlugin):
             parts.extend(repr(arg) for arg in args)
         if kwargs:
             parts.extend(f"{k}={repr(v)}" for k, v in kwargs.items())
-        return ', '.join(parts)
+        return ", ".join(parts)
 
     def on_decorate(
         self,
@@ -197,7 +197,8 @@ class LoggingPlugin(BasePlugin):
                         elapsed = time.time() - start_time
                         time_str = f" ({elapsed:.4f}s)"
                     exc_type = type(e).__name__
-                    self._output(f"✗ {handler_name}() raised {exc_type}: {e}{time_str}", level='error')
+                    msg = f"✗ {handler_name}() raised {exc_type}: {e}{time_str}"
+                    self._output(msg, level="error")
                 raise
             finally:
                 # Log after call (if no exception)
