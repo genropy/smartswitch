@@ -4,27 +4,59 @@
 
 # SmartSwitch
 
-**Intelligent function registry and dispatch for Python**
+**Named function registry and plugin system for Python**
 
-SmartSwitch is a powerful library that enables elegant function dispatching through named registries and plugin-based composition. Write cleaner, more maintainable code by separating business logic from control flow.
+## What is SmartSwitch?
+
+SmartSwitch is a lightweight library that helps you organize and manage functions using two core capabilities:
+
+1. **Named Handler Registry**: Register functions by name or custom alias, then call them dynamically
+2. **Plugin System**: Extend functionality with middleware-style plugins for logging, validation, and more
+
+**In one sentence**: SmartSwitch turns your functions into a callable registry with extensible middleware.
+
+## When is SmartSwitch Useful?
+
+SmartSwitch shines in these scenarios:
+
+- **API Routers**: Map endpoint names to handler functions
+- **Command Dispatchers**: Build CLI tools with named command handlers
+- **Event Handlers**: Create event-driven systems with clean handler registration
+- **Plugin Architectures**: Need middleware-style wrapping around functions
+- **Code Organization**: Replace messy if-elif chains with declarative function registries
 
 ## Key Features
 
-- **Named handler registry**: Call functions by name or custom alias
-- **Plugin system**: Extend functionality with middleware-style plugins
+### Core Functionality
+
+- **Named handler registry**: Call functions by name using decorator-based registration
+- **Custom aliases**: Use friendly names different from function names
+- **Prefix-based naming**: Convention-driven automatic name derivation
+- **Hierarchical organization**: Parent-child Switcher relationships with dotted-path access
 - **Zero dependencies**: Pure Python 3.10+ standard library
-- **High performance**: Optimized with caching and pre-compiled checks
 - **Type safe**: Full type hints support
 
-## Learning by Example
+### Plugin System
 
-The best way to understand SmartSwitch is to see how it solves real problems. Let's go step by step.
+- **Extensible architecture**: Add custom functionality via plugins
+- **Clean API**: Access plugins via `sw.plugin_name.method()` pattern
+- **Composable**: Chain multiple plugins seamlessly
+- **Standard plugins**: Built-in logging plugin included
+- **External plugins**: Third-party packages can extend functionality
 
-### 1. The Registry Pattern
+### Developer Experience
 
-**The Problem**: You have multiple operations and want to invoke them by name.
+- **Modular & testable**: Each handler is an independent, testable function
+- **Clean code**: Replace if-elif chains with declarative registries
+- **High performance**: Optimized with caching (~1-2μs overhead per call)
+- **Well documented**: Comprehensive guides with tested examples
 
-**Without SmartSwitch**:
+## Quick Example
+
+### Basic Usage
+
+Replace this messy code:
+
 ```python
 # Manual dictionary - error-prone
 operations = {
@@ -39,7 +71,8 @@ if op:
     result = op(data)
 ```
 
-**With SmartSwitch**:
+With clean, self-registering handlers:
+
 ```python
 from smartswitch import Switcher
 
@@ -61,66 +94,107 @@ def delete_data(data):
 result = ops('save_data')(data)
 ```
 
-**Why it's better**:
-- No manual dictionary maintenance
-- Functions self-register with decorator
-- Clear, declarative code
+### With Plugins
 
-### 2. Custom Aliases
+Add logging to track all handler calls:
 
-**The Problem**: Function names don't match user-facing command names.
-
-**Without SmartSwitch**:
 ```python
-# Awkward mapping
-command_map = {
-    'reset': destroy_all_data,
-    'clear': remove_cache,
-    'wipe': erase_history
-}
+from smartswitch import Switcher
 
-handler = command_map[user_command]
-handler()
+# Create switcher with logging plugin
+sw = Switcher().plug('logging', mode='silent', time=True)
+
+@sw
+def my_handler(x):
+    return x * 2
+
+# Use handler
+result = sw('my_handler')(5)  # → 10
+
+# Access plugin to analyze history
+history = sw.logging.history()
+print(history)  # → [{'handler': 'my_handler', 'args': (5,), 'result': 10, ...}]
+
+# Find slow operations
+slowest = sw.logging.history(slowest=5)
 ```
 
-**With SmartSwitch**:
-```python
-ops = Switcher()
+## Learning Path
 
-@ops('reset')
-def destroy_all_data():
-    return "All data destroyed"
+### For Beginners
 
-@ops('clear')
-def remove_cache():
-    return "Cache cleared"
+Start here to understand the basics:
 
-@ops('wipe')
-def erase_history():
-    return "History erased"
+1. **[Installation](user-guide/installation.md)** - Get SmartSwitch installed
+2. **[Quick Start](user-guide/quickstart.md)** - Learn the two core patterns in minutes
+3. **[Basic Usage](user-guide/basic.md)** - Understand decorator patterns and calling conventions
 
-# Use friendly names
-result = ops('reset')()
-```
+### For Production Use
 
-**Why it's better**:
-- Aliases defined right where function is defined
-- No separate mapping to maintain
-- Function name can be descriptive, alias can be short
+Deep dive into specific features:
+
+- **[Named Handlers](guide/named-handlers.md)** - Registry patterns, aliases, prefix-based naming
+- **[API Discovery](guide/api-discovery.md)** - Introspection and hierarchical organization
+- **[Best Practices](guide/best-practices.md)** - Production patterns and performance tips
+
+### For Extension Developers
+
+Build custom functionality:
+
+- **[Plugin System Overview](plugins/index.md)** - Understanding the plugin architecture
+- **[Plugin Development](plugins/development.md)** - Create your own plugins
+- **[Middleware Pattern](plugins/middleware.md)** - Advanced plugin patterns
 
 ## Why SmartSwitch?
 
 Traditional approaches to conditional logic often lead to:
-- Long if-elif chains
-- Duplicate code
-- Hard to maintain functions
-- Poor testability
+
+- Long if-elif chains that grow over time
+- Duplicate code across similar handlers
+- Hard-to-maintain monolithic functions
+- Poor testability and code organization
 
 SmartSwitch solves these problems by:
-- Separating logic from dispatch
-- Making rules explicit and testable
-- Enabling modular handler composition
-- Providing clear, readable code
+
+- **Separating registration from invocation**: Functions self-register, you call by name
+- **Making handlers independent**: Each function is standalone and testable
+- **Enabling composition**: Plugins add cross-cutting concerns without modifying handlers
+- **Providing clear structure**: Hierarchical organization for complex systems
+
+## Real-World Example
+
+Here's a complete API router implementation:
+
+```python
+from smartswitch import Switcher
+
+api = Switcher(name="api")
+
+@api('list_users')
+def get_users(page=1):
+    # Fetch from database
+    return {"users": [...], "page": page}
+
+@api('create_user')
+def create_user(data):
+    # Create user
+    return {"id": 123, "created": True}
+
+@api('not_found')
+def handle_404():
+    return {"error": "Not Found", "status": 404}
+
+# Route requests
+def handle_request(endpoint, **kwargs):
+    handler = api._methods.get(endpoint)
+    if handler:
+        return api(endpoint)(**kwargs)
+    return api('not_found')()
+
+# Use it
+response = handle_request('list_users', page=2)
+print(response)  # → {"users": [...], "page": 2}
+```
 
 ## Get Started
 
@@ -131,6 +205,18 @@ pip install smartswitch
 ```
 
 Then check out the [Quick Start Guide](user-guide/quickstart.md) to begin using SmartSwitch in your projects.
+
+## Performance
+
+SmartSwitch adds minimal overhead (~1-2 microseconds per dispatch). For real-world functions doing actual work (API calls, database queries, business logic), this overhead is negligible:
+
+```
+Function execution time: 50ms (API call)
+SmartSwitch overhead: 0.002ms
+Relative impact: 0.004% ✅
+```
+
+See [Performance Best Practices](guide/best-practices.md#performance-best-practices) for details.
 
 ## Documentation
 
@@ -182,7 +268,6 @@ api/switcher
 :caption: Advanced
 
 appendix/architecture
-appendix/vs-match
 ```
 
 ## License

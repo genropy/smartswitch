@@ -459,11 +459,11 @@ sw = (Switcher()
       .plug('metrics')
       .plug('cache'))
 
-@sw.typerule(int, int)
+@sw
 def add(a, b):
     return a + b
 
-result = add(2, 3)
+result = sw('add')(2, 3)
 ```
 
 **Execution flow:**
@@ -694,7 +694,7 @@ class TracingPlugin:
 Business logic stays clean:
 
 ```python
-@sw.typerule(str)
+@sw
 def process_order(order_id: str):
     # ONLY business logic - no logging, metrics, etc.
     return f"Processed {order_id}"
@@ -721,7 +721,7 @@ Add cross-cutting concerns without touching functions:
 
 ```python
 # Original code unchanged
-@sw.typerule(int, int)
+@sw
 def add(a, b):
     return a + b
 

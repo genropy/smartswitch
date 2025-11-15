@@ -1,239 +1,70 @@
 # SmartSwitch - Real-World Patterns
 
-## API Request Routing
+## API Method Registry
 
-### HTTP Method + Path Dispatch
+### Organized Method Collections
 ```python
-api = Switcher()
+class UserAPI:
+    operations = Switcher(name="user_ops")
 
-@api(valrule=lambda method, path: method == 'GET' and path.startswith('/users'))
-def list_users(method, path, **kw):
-    return {"users": [...]}
+    @operations
+    def create(self, username, email):
+        return {"id": 123, "username": username, "email": email}
 
-@api(valrule=lambda method, path: method == 'POST' and path == '/users')
-def create_user(method, path, data):
-    return {"created": data['name']}
+    @operations
+    def delete(self, user_id):
+        return {"deleted": user_id}
 
-@api(valrule=lambda method, path: method == 'DELETE' and path.startswith('/users/'))
-def delete_user(method, path):
-    user_id = path.split('/')[-1]
-    return {"deleted": user_id}
+    @operations
+    def update(self, user_id, **fields):
+        return {"updated": user_id, "fields": fields}
 
-@api  # 404 fallback
-def not_found(method, path, **kw):
-    return {"error": "Not Found", "status": 404}
-
-# Usage
-api()('GET', '/users')              # → list_users
-api()('POST', '/users', data={...}) # → create_user
-api()('GET', '/unknown')            # → not_found
+api = UserAPI()
+api.operations('create')("alice", "alice@example.com")
+api.operations('delete')(123)
+api.operations('update')(123, email="new@example.com")
 ```
 
-## Payment Processing
+## Hierarchical API Structure
 
-### Amount + Method Dispatch
-```python
-payments = Switcher()
-
-@payments(
-    typerule={'amount': int | float},
-    valrule=lambda method, amount: method == 'crypto' and amount > 1000
-)
-def process_large_crypto(method, amount, details):
-    return {"processor": "crypto_large", "fee": amount * 0.01}
-
-@payments(valrule=lambda method: method == 'credit_card')
-def process_card(method, amount, details):
-    return {"processor": "stripe", "fee": amount * 0.03}
-
-@payments(valrule=lambda method: method == 'wire')
-def process_wire(method, amount, details):
-    return {"processor": "bank", "fee": 25.0}
-
-@payments
-def unsupported_method(method, amount, details):
-    return {"error": "Unsupported payment method"}
-```
-
-## File Format Handlers
-
-### Extension-Based Dispatch
-```python
-parsers = Switcher()
-
-@parsers(valrule=lambda filepath: filepath.endswith('.json'))
-def parse_json(filepath):
-    import json
-    with open(filepath) as f:
-        return json.load(f)
-
-@parsers(valrule=lambda filepath: filepath.endswith(('.yml', '.yaml')))
-def parse_yaml(filepath):
-    import yaml
-    with open(filepath) as f:
-        return yaml.safe_load(f)
-
-@parsers(valrule=lambda filepath: filepath.endswith('.csv'))
-def parse_csv(filepath):
-    import csv
-    with open(filepath) as f:
-        return list(csv.DictReader(f))
-
-@parsers
-def parse_text(filepath):
-    with open(filepath) as f:
-        return f.read()
-
-# Usage
-data = parsers()('/path/to/config.json')
-data = parsers()('/path/to/data.csv')
-```
-
-## State Machine
-
-### Status-Based Transitions
-```python
-workflow = Switcher()
-
-@workflow(valrule=lambda current_state: current_state == 'draft')
-def submit_for_review(current_state, doc):
-    doc['state'] = 'review'
-    return doc
-
-@workflow(valrule=lambda current_state, approved: 
-          current_state == 'review' and approved)
-def approve(current_state, doc, approved):
-    doc['state'] = 'approved'
-    return doc
-
-@workflow(valrule=lambda current_state, approved: 
-          current_state == 'review' and not approved)
-def reject(current_state, doc, approved):
-    doc['state'] = 'draft'
-    doc['feedback'] = "Needs revision"
-    return doc
-
-@workflow(valrule=lambda current_state: current_state == 'approved')
-def publish(current_state, doc):
-    doc['state'] = 'published'
-    doc['published_at'] = time.time()
-    return doc
-```
-
-## Plugin System
-
-### Plugin Type Dispatch
-```python
-plugins = Switcher()
-
-@plugins(typerule={'plugin': ImagePlugin})
-def handle_image(plugin, data):
-    return plugin.process_image(data)
-
-@plugins(typerule={'plugin': VideoPlugin})
-def handle_video(plugin, data):
-    return plugin.process_video(data)
-
-@plugins(typerule={'plugin': AudioPlugin})
-def handle_audio(plugin, data):
-    return plugin.process_audio(data)
-
-# Usage
-result = plugins()(plugin=my_image_plugin, data=image_data)
-```
-
-## Multi-Tenant Routing
-
-### Tenant-Aware Dispatch
-```python
-handlers = Switcher()
-
-@handlers(valrule=lambda tenant_id: tenant_id in ENTERPRISE_TENANTS)
-def handle_enterprise(tenant_id, request):
-    # Enterprise features + priority support
-    return process_with_sla(request, sla_tier='gold')
-
-@handlers(valrule=lambda tenant_id: tenant_id in PREMIUM_TENANTS)
-def handle_premium(tenant_id, request):
-    return process_with_sla(request, sla_tier='silver')
-
-@handlers
-def handle_free(tenant_id, request):
-    return process_basic(request)
-
-# Usage
-result = handlers()(tenant_id='acme_corp', request=req)
-```
-
-## Complex Rule Combinations
-
-### Multiple Condition Checks
-```python
-orders = Switcher()
-
-@orders(
-    typerule={'amount': int | float, 'items': list},
-    valrule=lambda region, amount, items: 
-        region == 'EU' and amount > 100 and len(items) > 5
-)
-def process_eu_bulk(region, amount, items):
-    return {"discount": 0.15, "shipping": "free"}
-
-@orders(
-    valrule=lambda region, amount: region == 'EU' and amount > 100
-)
-def process_eu_high_value(region, amount, items):
-    return {"discount": 0.10, "shipping": "free"}
-
-@orders(valrule=lambda region: region == 'EU')
-def process_eu_normal(region, amount, items):
-    return {"discount": 0.05, "shipping": 9.99}
-
-@orders
-def process_rest_of_world(region, amount, items):
-    return {"discount": 0, "shipping": 19.99}
-```
-
-## Hierarchical API (Production Pattern)
-
-### Organized Multi-Domain API
+### Multi-Domain Organization
 ```python
 class ProductionAPI:
     # Root switcher
     api = Switcher(name="api")
-    
+
     # Domain switchers with prefixes
     users = api.add(Switcher(name="users", prefix="user_"))
     products = api.add(Switcher(name="products", prefix="product_"))
     orders = api.add(Switcher(name="orders", prefix="order_"))
-    
+
     # User handlers
     @users
     def user_list(self, filters=None):
         return db.users.find(filters or {})
-    
+
     @users
     def user_create(self, data):
         return db.users.insert(data)
-    
+
     @users
     def user_update(self, user_id, data):
         return db.users.update(user_id, data)
-    
+
     # Product handlers
     @products
     def product_list(self, category=None):
         return db.products.find(category)
-    
+
     @products
     def product_search(self, query):
         return db.products.search(query)
-    
+
     # Order handlers
-    @orders(valrule=lambda status: status == 'pending')
-    def order_process_pending(self, order_id, status):
-        return process_order(order_id)
-    
+    @orders
+    def order_create(self, user_id, items):
+        return db.orders.create(user_id, items)
+
     @orders
     def order_get(self, order_id):
         return db.orders.get(order_id)
@@ -244,7 +75,7 @@ api = ProductionAPI()
 # Direct access
 api.users('list')(filters={'active': True})
 
-# Hierarchical access
+# Hierarchical access (dot notation)
 api.api('users.list')(filters={'active': True})
 api.api('products.search')(query="laptop")
 api.api('orders.get')(order_id=123)
@@ -256,47 +87,261 @@ for child in api.api.children:
     print(f"{child.name}: {child.entries()}")
 ```
 
-## Validation Pattern
+## Command Pattern
 
-### Pre-Validation with Rules
+### Command Handler Registry
 ```python
-validators = Switcher()
+class CommandProcessor:
+    commands = Switcher(prefix='cmd_')
 
-@validators(
-    typerule={'email': str, 'age': int},
-    valrule=lambda age, email: age >= 18 and '@' in email
-)
-def validate_adult_registration(email, age, **kw):
-    return {"valid": True, "tier": "adult"}
+    @commands
+    def cmd_start(self, context):
+        context['status'] = 'running'
+        return "Started"
 
-@validators(
-    typerule={'email': str, 'age': int},
-    valrule=lambda age: 13 <= age < 18
-)
-def validate_teen_registration(email, age, **kw):
-    return {"valid": True, "tier": "teen", "requires_consent": True}
+    @commands
+    def cmd_stop(self, context):
+        context['status'] = 'stopped'
+        return "Stopped"
 
-@validators
-def reject_registration(email, age, **kw):
-    return {"valid": False, "error": "Invalid registration"}
+    @commands
+    def cmd_restart(self, context):
+        self.cmd_stop(context)
+        self.cmd_start(context)
+        return "Restarted"
 
-# Usage
-result = validators()(email="user@example.com", age=25)
+processor = CommandProcessor()
+context = {}
+
+# Execute commands by name
+processor.commands('start')(context)
+processor.commands('restart')(context)
+```
+
+## Plugin Pattern - Middleware
+
+### Request/Response Logging
+```python
+from smartswitch import Switcher, BasePlugin
+
+class LoggingPlugin(BasePlugin):
+    def wrap_handler(self, func, name, switcher):
+        def wrapper(*args, **kwargs):
+            print(f"[{switcher.name}] Calling {name}")
+            print(f"  Args: {args}, Kwargs: {kwargs}")
+            result = func(*args, **kwargs)
+            print(f"  Result: {result}")
+            return result
+        return wrapper
+
+api = Switcher(name="api", plugins=[LoggingPlugin()])
+
+@api
+def process_payment(amount, currency):
+    return {"status": "success", "amount": amount, "currency": currency}
+
+# Logs automatically
+api('process_payment')(100, "USD")
+# Output:
+# [api] Calling process_payment
+#   Args: (100, 'USD'), Kwargs: {}
+#   Result: {'status': 'success', 'amount': 100, 'currency': 'USD'}
+```
+
+## Plugin Pattern - Validation
+
+### Pydantic Integration
+```python
+from smartswitch import Switcher
+from smartswitch.plugins import PydanticPlugin
+
+sw = Switcher(plugins=[PydanticPlugin()])
+
+@sw
+def create_user(name: str, age: int, email: str):
+    return {"name": name, "age": age, "email": email}
+
+# Valid call
+sw('create_user')("Alice", 30, "alice@example.com")
+
+# Invalid call - raises ValidationError
+try:
+    sw('create_user')("Alice", "thirty", "alice@example.com")  # age must be int
+except Exception as e:
+    print(f"Validation failed: {e}")
+```
+
+## Plugin Pattern - Custom Lifecycle
+
+### Initialization Hook
+```python
+from smartswitch import BasePlugin
+
+class InitializerPlugin(BasePlugin):
+    def on_decorate(self, func, name, switcher, metadata):
+        """Called when handler is decorated (before wrapping)."""
+        print(f"Registered {name} in {switcher.name}")
+        # Can store metadata for later use
+        metadata['registered_at'] = time.time()
+
+    def wrap_handler(self, func, name, switcher):
+        """Called to wrap the handler."""
+        def wrapper(*args, **kwargs):
+            # Access metadata stored during on_decorate
+            registered_at = func._plugin_meta.get('registered_at')
+            print(f"Handler registered at {registered_at}")
+            return func(*args, **kwargs)
+        return wrapper
+
+sw = Switcher(plugins=[InitializerPlugin()])
+
+@sw
+def process(data):
+    return f"Processed: {data}"
+```
+
+## Prefix-Based Organization
+
+### Event Handler Organization
+```python
+class EventSystem:
+    handlers = Switcher(prefix='on_')
+
+    @handlers
+    def on_user_login(self, user_id):
+        print(f"User {user_id} logged in")
+
+    @handlers
+    def on_user_logout(self, user_id):
+        print(f"User {user_id} logged out")
+
+    @handlers
+    def on_payment_received(self, amount):
+        print(f"Payment received: ${amount}")
+
+    def trigger(self, event_name, *args, **kwargs):
+        """Trigger event by name."""
+        return self.handlers(event_name)(*args, **kwargs)
+
+events = EventSystem()
+events.trigger('user_login', user_id=123)
+events.trigger('payment_received', amount=100)
+```
+
+## Dynamic Handler Discovery
+
+### List and Call Handlers
+```python
+api = Switcher(name="api")
+
+@api
+def get_users():
+    return ["alice", "bob"]
+
+@api
+def get_products():
+    return ["laptop", "phone"]
+
+@api
+def get_orders():
+    return [1, 2, 3]
+
+# Discover all handlers
+handlers = api.entries()  # ['get_users', 'get_products', 'get_orders']
+
+# Call all handlers dynamically
+results = {}
+for handler_name in handlers:
+    results[handler_name] = api(handler_name)()
+
+print(results)
+# {
+#   'get_users': ['alice', 'bob'],
+#   'get_products': ['laptop', 'phone'],
+#   'get_orders': [1, 2, 3]
+# }
+```
+
+## Method Binding in Classes
+
+### Service Class Pattern
+```python
+class DatabaseService:
+    operations = Switcher()
+
+    def __init__(self, connection_string):
+        self.conn = connect(connection_string)
+
+    @operations
+    def save(self, table, data):
+        return self.conn.execute(f"INSERT INTO {table} ...", data)
+
+    @operations
+    def load(self, table, id):
+        return self.conn.execute(f"SELECT * FROM {table} WHERE id = ?", id)
+
+    @operations
+    def delete(self, table, id):
+        return self.conn.execute(f"DELETE FROM {table} WHERE id = ?", id)
+
+# Instance method binding
+db = DatabaseService("postgresql://...")
+db.operations('save')("users", {"name": "Alice"})  # 'self' bound automatically
+db.operations('load')("users", 123)
+```
+
+## Plugin Chaining
+
+### Multiple Plugins Together
+```python
+from smartswitch import Switcher, BasePlugin
+
+class TimingPlugin(BasePlugin):
+    def wrap_handler(self, func, name, switcher):
+        def wrapper(*args, **kwargs):
+            start = time.time()
+            result = func(*args, **kwargs)
+            elapsed = time.time() - start
+            print(f"{name} took {elapsed:.4f}s")
+            return result
+        return wrapper
+
+class LoggingPlugin(BasePlugin):
+    def wrap_handler(self, func, name, switcher):
+        def wrapper(*args, **kwargs):
+            print(f"Calling {name}")
+            result = func(*args, **kwargs)
+            print(f"Done: {name}")
+            return result
+        return wrapper
+
+# Chain plugins - applied in order
+sw = Switcher(plugins=[LoggingPlugin(), TimingPlugin()])
+
+@sw
+def process(data):
+    time.sleep(0.1)
+    return f"Processed: {data}"
+
+sw('process')("test")
+# Output:
+# Calling process
+# process took 0.1002s
+# Done: process
 ```
 
 ## Best Practices
 
-1. **Rule Specificity**: Order rules from most specific to least specific
-2. **Always Have Default**: Use `@sw` (no rules) as fallback
-3. **Compact valrules**: Use `lambda kw: kw['x'] > 10` for clarity
-4. **Type Unions**: Use `int | str` for Python 3.10+
-5. **Naming Convention**: Use prefix for auto-derived names
-6. **Hierarchical APIs**: Organize related handlers in child Switchers
-7. **Testing**: Each handler is a pure function - easy to unit test
+1. **Use prefixes for related handlers**: Groups handlers logically
+2. **Organize with hierarchy**: Separate concerns with child Switchers
+3. **Plugin for cross-cutting concerns**: Logging, validation, timing
+4. **Keep handler names descriptive**: Clear intent from name alone
+5. **Method binding for services**: Use Switcher as class attribute
+6. **Discovery via entries()**: Dynamic handler listing and calling
 
 ## Performance Tips
 
-- Rules evaluated in registration order (first match wins)
-- Type checks cached after first use (~2μs overhead)
-- Default handler bypasses rule evaluation (fastest path)
-- For ultra-hot paths (<10μs functions), use direct function calls
+- Handler lookup is O(1) dictionary access (~2μs overhead)
+- Plugin wrapping happens once at decoration time
+- Child Switchers add ~1μs per level for dot notation access
+- For ultra-hot paths, store handler reference directly

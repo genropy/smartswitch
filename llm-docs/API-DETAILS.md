@@ -3,12 +3,14 @@
 ## Switcher Class
 
 ### Constructor
+
 ```python
 Switcher(
     name: str = "default",
     description: str | None = None,
     prefix: str | None = None,
-    parent: Switcher | None = None
+    parent: Switcher | None = None,
+    plugins: list[BasePlugin] | None = None
 )
 ```
 
@@ -17,91 +19,127 @@ Switcher(
 - `description`: Optional human-readable description
 - `prefix`: If set, auto-derive handler names by removing prefix from function names
 - `parent`: Parent Switcher for hierarchical APIs
+- `plugins`: List of plugin instances to apply to all handlers (v0.5.0+)
 
 **Example:**
 ```python
+from smartswitch import Switcher
+
 sw = Switcher(name="api", prefix="handle_")
 ```
 
 ### Decorator Methods
 
-#### `@sw` - Register Default Handler
+#### `@sw` - Register Handler by Function Name
+
 ```python
 @sw
 def handler(args):
     pass
 ```
-Registers as both default and named handler (using function name or prefix-stripped name).
+
+Registers handler using function name (or prefix-stripped name if prefix is set).
+
+**Example:**
+```python
+sw = Switcher()
+
+@sw
+def save_data(data):
+    return f"Saved: {data}"
+
+# Call by name
+sw('save_data')(data)
+```
 
 #### `@sw('name')` - Register with Custom Name
+
 ```python
 @sw('custom_name')
 def handler(args):
     pass
 ```
+
 Registers with specified alias. Also works for lookup if name exists.
 
-#### `@sw(typerule=..., valrule=...)` - Register with Rules
+**Example:**
 ```python
-@sw(
-    typerule={'param': type},
-    valrule=lambda param: condition
-)
-def handler(param):
-    pass
-```
+@sw('process')
+def handler(data):
+    return f"Processed: {data}"
 
-**typerule format:**
-```python
-{
-    'param_name': type,           # Single type
-    'other': int | str,           # Union type
-    'third': list[int]            # Generic type
-}
-```
-
-**valrule formats:**
-```python
-# Expanded (recommended for simple cases)
-valrule=lambda x, y: x > y
-
-# Compact dict
-valrule=lambda kw: kw['x'] > kw['y']
-
-# Compact unpack
-valrule=lambda **kw: kw.get('x', 0) > kw.get('y', 0)
+sw('process')(data)
 ```
 
 ### Call Methods
 
 #### Get Handler by Name
+
 ```python
 handler = sw('handler_name')
 result = handler(args)
 ```
-Supports dot notation for hierarchical access: `sw('child.handler')`
 
-#### Get Dispatcher (Auto-Dispatch)
+Returns callable handler. Supports dot notation for hierarchical access: `sw('child.handler')`
+
+**Example:**
 ```python
-dispatcher = sw()
-result = dispatcher(args)  # Chooses handler by rules
+sw = Switcher()
+
+@sw
+def process(data):
+    return f"Processed: {data}"
+
+# Get handler
+handler = sw('process')
+# Call handler
+result = handler("test")  # → "Processed: test"
+```
+
+**Hierarchical access:**
+```python
+root = Switcher(name="api")
+users = root.add(Switcher(name="users"))
+
+@users
+def list():
+    return ["alice", "bob"]
+
+# Access via dot notation
+root('users.list')()  # → ["alice", "bob"]
 ```
 
 ### Hierarchy Management
 
 #### `.add(switcher)` / `.add_child(switcher)`
+
 ```python
 child = parent.add(Switcher(name="child"))
 ```
+
 Adds child Switcher and sets bidirectional parent-child relationship. Returns child for chaining.
 
+**Example:**
+```python
+api = Switcher(name="api")
+users = api.add(Switcher(name="users"))
+products = api.add(Switcher(name="products"))
+
+# Access via parent
+api('users')  # → users Switcher
+api('products')  # → products Switcher
+```
+
 #### `.remove_child(switcher)`
+
 ```python
 parent.remove_child(child)
 ```
+
 Removes child and unsets parent relationship.
 
 #### `.parent` property
+
 ```python
 parent = sw.parent          # Get parent
 sw.parent = new_parent      # Set parent (auto-registers with parent)
@@ -109,120 +147,54 @@ sw.parent = None            # Unset parent
 ```
 
 #### `.children` property
+
 ```python
 children = sw.children      # Returns set of child Switchers
+```
+
+**Example:**
+```python
+api = Switcher(name="api")
+users = api.add(Switcher(name="users"))
+products = api.add(Switcher(name="products"))
+
+for child in api.children:
+    print(child.name)  # → "users", "products"
 ```
 
 ### Introspection
 
 #### `.entries()`
+
 ```python
 names = sw.entries()        # List of all handler names
 ```
 
+**Example:**
+```python
+sw = Switcher()
+
+@sw
+def process():
+    pass
+
+@sw
+def save():
+    pass
+
+sw.entries()  # → ['process', 'save']
+```
+
 #### `.name` attribute
+
 ```python
 sw.name = "new_name"
 ```
 
 #### `.description` attribute
+
 ```python
 sw.description = "API for user management"
-```
-
-### Logging (v0.4.0)
-
-#### `.enable_log(...)`
-```python
-sw.enable_log(
-    *handler_names: str,           # Empty = all handlers
-    mode: str = 'silent',          # 'log', 'silent', 'both'
-    before: bool = True,           # Log args
-    after: bool = True,            # Log result
-    time: bool = True,             # Measure time
-    log_file: str | None = None,   # Optional JSONL file
-    log_format: str = 'json',      # 'json' or 'jsonl'
-    max_history: int = 1000        # History size limit
-)
-```
-
-**Modes:**
-- `'silent'`: History only, no console output (production)
-- `'log'`: Console logging only
-- `'both'`: Console + history
-
-**Examples:**
-```python
-# Enable for all handlers
-sw.enable_log(mode='silent')
-
-# Enable for specific handlers
-sw.enable_log('critical', 'important', mode='both', time=True)
-
-# Disable specific handlers
-sw.disable_log('debug_handler')
-
-# Disable all
-sw.disable_log()
-```
-
-#### `.get_log_history(...)`
-```python
-sw.get_log_history(
-    last: int | None = None,           # Last N entries
-    first: int | None = None,          # First N entries
-    handler: str | None = None,        # Filter by handler
-    slowest: int | None = None,        # N slowest calls
-    fastest: int | None = None,        # N fastest calls
-    errors: bool | None = None,        # True=errors, False=successes
-    slower_than: float | None = None   # Threshold in seconds
-) -> list[dict]
-```
-
-**Returns:** List of log entries with:
-```python
-{
-    'handler': str,
-    'switcher': str,
-    'timestamp': float,
-    'args': tuple,
-    'kwargs': dict,
-    'result': Any,              # If success
-    'exception': {              # If error
-        'type': str,
-        'message': str
-    },
-    'elapsed': float            # If time=True
-}
-```
-
-#### `.get_log_stats()`
-```python
-stats = sw.get_log_stats()
-```
-
-**Returns:** Dict mapping handler names to stats:
-```python
-{
-    'handler_name': {
-        'calls': int,
-        'errors': int,
-        'avg_time': float,
-        'min_time': float,
-        'max_time': float,
-        'total_time': float
-    }
-}
-```
-
-#### `.clear_log_history()`
-```python
-sw.clear_log_history()
-```
-
-#### `.export_log_history(filepath)`
-```python
-sw.export_log_history('history.json')
 ```
 
 ## BoundSwitcher Class
@@ -232,196 +204,335 @@ Automatically created when accessing Switcher as class attribute. Binds `self` t
 ```python
 class Service:
     ops = Switcher()
-    
+
     @ops
     def process(self, data):
         return f"{self.name}: {data}"
 
-svc = Service()
+    def __init__(self, name):
+        self.name = name
+
+svc = Service("MyService")
 svc.ops('process')(data)  # 'self' bound automatically
 ```
 
 **Methods:** Same as Switcher, with automatic `self` binding.
 
-## Type System
+## BasePlugin Class (v0.5.0+)
 
-### Supported Types
-- Built-in types: `int`, `str`, `float`, `bool`, `list`, `dict`, `tuple`, `set`
-- Custom classes: `MyClass`
-- Union types: `int | str` (Python 3.10+)
-- Generic types: `list[int]`, `dict[str, int]`
-- Any: `Any` (matches anything)
+Base class for creating custom plugins that extend Switcher functionality.
 
-### Type Checking
+### Methods to Override
+
+#### `on_decorate(func, name, switcher, metadata)`
+
+Called when a handler is decorated, **before** wrapping. Use for initialization, validation, or storing metadata.
+
+**Parameters:**
+- `func`: The original function being decorated
+- `name`: The registered name for this handler
+- `switcher`: The Switcher instance
+- `metadata`: Dict for storing plugin-specific data (accessible as `func._plugin_meta`)
+
+**Example:**
 ```python
-from typing import Any
-
-@sw(typerule={
-    'count': int,
-    'name': str,
-    'data': list[int] | dict,
-    'any_value': Any
-})
-def handler(count, name, data, any_value):
-    pass
+class MetadataPlugin(BasePlugin):
+    def on_decorate(self, func, name, switcher, metadata):
+        metadata['registered_at'] = time.time()
+        metadata['version'] = '1.0'
 ```
 
-## Rule Evaluation Order
+#### `wrap_handler(func, name, switcher)`
 
-1. **Specific rules** (with typerule/valrule) - in registration order
-2. **Default handler** (plain `@sw`)
+Called to wrap the handler function. Return a wrapper function that calls the original.
 
-First matching rule wins.
+**Parameters:**
+- `func`: The original function
+- `name`: The registered name
+- `switcher`: The Switcher instance
+
+**Returns:** Wrapped function
+
+**Example:**
+```python
+class LoggingPlugin(BasePlugin):
+    def wrap_handler(self, func, name, switcher):
+        def wrapper(*args, **kwargs):
+            print(f"Calling {name}")
+            result = func(*args, **kwargs)
+            print(f"Done: {name}")
+            return result
+        return wrapper
+```
+
+### Complete Plugin Example
 
 ```python
-sw = Switcher()
+from smartswitch import Switcher, BasePlugin
+import time
 
-@sw(valrule=lambda x: x > 100)  # Most specific - checked first
-def handle_large(x):
-    return "large"
+class TimingPlugin(BasePlugin):
+    def on_decorate(self, func, name, switcher, metadata):
+        # Store registration time
+        metadata['registered_at'] = time.time()
 
-@sw(valrule=lambda x: x > 10)   # Less specific - checked second
-def handle_medium(x):
-    return "medium"
+    def wrap_handler(self, func, name, switcher):
+        def wrapper(*args, **kwargs):
+            start = time.time()
+            result = func(*args, **kwargs)
+            elapsed = time.time() - start
+            print(f"{name} took {elapsed:.4f}s")
+            return result
+        return wrapper
 
-@sw  # Default - checked last
-def handle_small(x):
-    return "small"
+sw = Switcher(plugins=[TimingPlugin()])
 
-sw()(x=150)  # → handle_large
-sw()(x=50)   # → handle_medium
-sw()(x=5)    # → handle_small
+@sw
+def slow_operation():
+    time.sleep(0.1)
+    return "done"
+
+sw('slow_operation')()  # Prints timing
 ```
+
+## Built-in Plugins
+
+### PydanticPlugin (v0.5.0+)
+
+Validates handler arguments using type hints and Pydantic models.
+
+**Installation:**
+```bash
+pip install smartswitch[pydantic]
+```
+
+**Usage:**
+```python
+from smartswitch import Switcher
+from smartswitch.plugins import PydanticPlugin
+
+sw = Switcher(plugins=[PydanticPlugin()])
+
+@sw
+def create_user(name: str, age: int, email: str):
+    return {"name": name, "age": age, "email": email}
+
+# Valid
+sw('create_user')("Alice", 30, "alice@example.com")
+
+# Invalid - raises ValidationError
+sw('create_user')("Alice", "thirty", "invalid-email")
+```
+
+**Behavior:**
+- Automatically validates arguments against type hints
+- Raises `ValidationError` on type mismatch
+- Supports all Pydantic types and validators
+- Works with `from __future__ import annotations`
 
 ## Method Binding (Descriptor Protocol)
 
-Switcher implements `__get__` for automatic method binding:
+Switcher implements `__get__` for automatic method binding in classes:
 
 ```python
 class API:
     handlers = Switcher()
-    
+
     @handlers
     def save(self, data):
         return f"{self.name} saved {data}"
-    
+
     def __init__(self, name):
         self.name = name
 
 api = API("DB")
-api.handlers('save')("data")  # 'self' bound, no need to pass api
+api.handlers('save')("data")  # 'self' automatically bound
 ```
+
+**How it works:**
+- When accessed as class attribute, Switcher returns a `BoundSwitcher`
+- `BoundSwitcher` automatically passes instance (`self`) to handlers
+- All Switcher methods work the same on `BoundSwitcher`
 
 ## Thread Safety
 
 ### Safe Operations (Read-Only)
-- Handler dispatch: `sw('name')(args)`
-- Rule evaluation: `sw()(args)`
-- Introspection: `sw.entries()`, `sw.children`
-- History queries: `sw.get_log_history()`
+- Handler dispatch: `sw('name')(args)` ✅
+- Introspection: `sw.entries()`, `sw.children` ✅
+- Handler lookup: `sw('name')` ✅
 
 ### Unsafe Operations (Require External Locking)
-- Decorator registration: `@sw` (should be at module level)
-- Hierarchy modification: `sw.add()`, `sw.remove_child()`
-- Runtime handler addition (not recommended)
+- Decorator registration: `@sw` ⚠️ (should be at module level)
+- Hierarchy modification: `sw.add()`, `sw.remove_child()` ⚠️
 
-**Best Practice:** Register handlers at module import (single-threaded), dispatch at runtime (thread-safe).
+**Best Practice:** Register handlers at module import (single-threaded), dispatch at runtime (fully thread-safe).
 
 ## Performance Characteristics
 
 - **Dispatch overhead**: ~2μs per call
-- **Type checking**: Cached after first use
-- **Rule evaluation**: O(n) where n = number of rules
-- **Default handler**: O(1) (no rule evaluation)
-- **Logging overhead**:
-  - Silent mode: ~0.5μs
-  - Log mode: ~50μs (I/O bound)
+- **Handler lookup**: O(1) dictionary access
+- **Hierarchical access**: +~1μs per level with dot notation
+- **Plugin overhead**: Negligible (wrapping happens once at decoration)
+- **Memory**: Minimal (handlers stored as dict references)
+
+**Good for:**
+- API handlers (I/O bound)
+- Business logic (DB queries, calculations)
+- Event handlers
+- Command processors
+
+**Not ideal for:**
+- Ultra-fast functions called millions of times (<10μs functions)
+- Performance-critical inner loops
+- Simple 2-3 case dispatches (use if/elif)
 
 ## Common Patterns
 
 ### API Router
 ```python
-api = Switcher()
+class API:
+    router = Switcher(name="api")
 
-@api(valrule=lambda method, path: method == 'GET' and path == '/users')
-def list_users(method, path):
-    pass
+    @router
+    def get_users(self):
+        return ["alice", "bob"]
+
+    @router
+    def create_user(self, name):
+        return {"id": 123, "name": name}
+
+api = API()
+api.router('get_users')()
+api.router('create_user')("charlie")
 ```
 
-### State Machine
+### Command Pattern
 ```python
-fsm = Switcher()
+commands = Switcher(prefix='cmd_')
 
-@fsm(valrule=lambda state: state == 'idle')
-def start(state):
-    return 'running'
+@commands
+def cmd_start():
+    return "Started"
+
+@commands
+def cmd_stop():
+    return "Stopped"
+
+commands('start')()
+commands('stop')()
 ```
 
 ### Plugin System
 ```python
 plugins = Switcher(prefix='plugin_')
 
-@plugins  # Auto-registers as 'image'
-def plugin_image(data):
-    pass
+@plugins
+def plugin_markdown(content):
+    return markdown.render(content)
+
+@plugins
+def plugin_syntax(content):
+    return highlight(content)
+
+plugins('markdown')(content)
+plugins('syntax')(code)
 ```
 
-### Hierarchical API
+### Hierarchical Organization
 ```python
-root = Switcher(name="api")
-users = root.add(Switcher(name="users"))
-products = root.add(Switcher(name="products"))
+api = Switcher(name="api")
+v1 = api.add(Switcher(name="v1"))
+v2 = api.add(Switcher(name="v2"))
 
-@users
-def list(): pass
+@v1
+def users():
+    return ["alice"]
 
-root('users.list')()  # Dot notation access
+@v2
+def users():
+    return ["alice", "bob", "charlie"]
+
+api('v1.users')()  # → ["alice"]
+api('v2.users')()  # → ["alice", "bob", "charlie"]
 ```
 
 ## Error Handling
 
-### ValueError
-Raised when no rule matches and no default handler:
-```python
-try:
-    sw()(unmatched_args)
-except ValueError as e:
-    print(f"No handler found: {e}")
-```
+### ValueError - Handler Not Found by Name
 
-### KeyError
 Raised when handler name not found:
 ```python
 try:
     sw('nonexistent')
-except KeyError as e:
+except ValueError as e:
     print(f"Handler not found: {e}")
 ```
 
-### TypeError
-Raised on invalid decorator usage:
+### TypeError - Invalid Decorator Usage
+
+Raised on invalid decorator arguments:
 ```python
 try:
-    sw(invalid_argument)
+    @sw(invalid_argument)
+    def handler():
+        pass
 except TypeError as e:
     print(f"Invalid usage: {e}")
 ```
 
 ## Debugging Tips
 
-1. **List handlers**: `print(sw.entries())`
+1. **List all handlers**: `print(sw.entries())`
 2. **Check hierarchy**: `print([c.name for c in sw.children])`
-3. **Enable logging**: `sw.enable_log(mode='log')`
-4. **Check stats**: `print(sw.get_log_stats())`
-5. **Find errors**: `errors = sw.get_log_history(errors=True)`
-6. **Introspect handler**: `print(sw('name').__wrapped__)`
+3. **Inspect handler**: `print(sw('name').__wrapped__)`
+4. **Check parent**: `print(sw.parent.name if sw.parent else 'No parent')`
 
 ## Version History
 
+- **0.9.2**: Documentation updates, removed obsolete features
 - **0.6.0**: Added plugin lifecycle hooks (`on_decorate()`), metadata sharing (`func._plugin_meta`)
-- **0.5.0**: Added plugin system with `BasePlugin`, global registry, PydanticPlugin
-- **0.4.0**: Added logging, history tracking, performance analysis
+- **0.5.0**: Added plugin system with `BasePlugin`, global registry, `PydanticPlugin`
+- **0.4.0**: Refactored core, improved type hints
 - **0.3.1**: Added dot notation for hierarchical access
 - **0.3.0**: Added `entries()` method, hierarchical structures
 - **0.2.x**: Added prefix-based auto-naming
-- **0.1.x**: Initial release with basic dispatch
+- **0.1.x**: Initial release with basic named dispatch
+
+## Migration Notes
+
+### From 0.8.x to 0.9.x
+
+**Removed features:**
+- `typerule` parameter (type-based dispatch)
+- `valrule` parameter (value-based dispatch)
+- Automatic rule-based dispatch
+
+**Migration:**
+- Use named dispatch only: `sw('handler_name')(args)`
+- For validation, use `PydanticPlugin`
+- For conditional logic, implement inside handlers or use separate functions
+
+**Example:**
+```python
+# Old (0.8.x) - NO LONGER WORKS
+@sw(typerule={'data': str})
+def process_string(data):
+    return data.upper()
+
+@sw(typerule={'data': int})
+def process_number(data):
+    return data * 2
+
+# New (0.9.x) - Use named dispatch
+@sw('process_string')
+def process_string(data: str):
+    return data.upper()
+
+@sw('process_number')
+def process_number(data: int):
+    return data * 2
+
+# Call explicitly by name
+sw('process_string')("hello")
+sw('process_number')(42)
+```

@@ -8,13 +8,17 @@ This guide will get you up and running with SmartSwitch in minutes.
 pip install smartswitch
 ```
 
-## The Four Core Patterns
+## The Two Core Patterns
 
-SmartSwitch solves four common problems. Let's see them in order of complexity.
+SmartSwitch provides two main capabilities. Let's explore them in order.
 
-### 1. Call Functions by Name
+### Pattern 1: Named Handler Registry
 
 **Your situation**: You have operations and want to call them by name.
+
+#### Basic Registration
+
+Register functions using decorators:
 
 ```python
 from smartswitch import Switcher
@@ -34,7 +38,13 @@ result = ops('save_data')("my_file.txt")
 print(result)  # → "Saved: my_file.txt"
 ```
 
-### 2. Use Custom Aliases
+**Why it's better than manual dictionaries:**
+- Functions self-register with decorator
+- No manual dictionary maintenance
+- Clear, declarative code
+- Collision detection built-in
+
+#### Custom Aliases
 
 **Your situation**: Function names are long, but you want short command names.
 
@@ -54,177 +64,286 @@ result = ops('reset')()
 print(result)  # → "Everything destroyed"
 ```
 
-### 3. Dispatch on Values
+**Key insight**: Alias is defined right where the function is defined - no separate mapping needed.
 
-**Your situation**: Different logic based on actual data values.
+#### Prefix-Based Auto-Naming
 
-```python
-sw = Switcher()
-
-@sw(valrule=lambda status: status == 'active')
-def handle_active(status, user):
-    return f"Processing active user: {user}"
-
-@sw(valrule=lambda status: status == 'suspended')
-def handle_suspended(status, user):
-    return f"User {user} is suspended"
-
-@sw
-def handle_other(status, user):
-    return f"Unknown status for {user}"
-
-# Automatic dispatch based on values
-result = sw()(status='active', user='Alice')
-print(result)  # → "Processing active user: Alice"
-```
-
-**Alternative: Compact lambda syntax**
-
-You can also use a compact dict-style lambda for complex conditions:
+**Your situation**: You follow naming conventions and want automatic name derivation.
 
 ```python
-sw = Switcher()
+# Set prefix for automatic name stripping
+protocols = Switcher(prefix='protocol_')
 
-@sw(valrule=lambda kw: kw['status'] == 'active' and kw['user'].startswith('A'))
-def handle_special(status, user):
-    return f"Special processing for {user}"
+@protocols  # Auto-registers as 's3_aws'
+def protocol_s3_aws():
+    return {"type": "s3", "region": "us-east-1"}
 
-@sw(valrule=lambda kw: kw['status'] == 'active')
-def handle_active(status, user):
-    return f"Processing active user: {user}"
+@protocols  # Auto-registers as 'gcs'
+def protocol_gcs():
+    return {"type": "gcs", "bucket": "data"}
+
+# Call by derived name (prefix removed)
+result = protocols('s3_aws')()
+print(result)  # → {"type": "s3", "region": "us-east-1"}
 ```
 
-This is useful when you need to check multiple parameters in one condition.
+**Why use prefixes:**
+- Maintain Python naming conventions (`protocol_*` functions in IDE)
+- Get clean handler names automatically (`s3_aws`, not `protocol_s3_aws`)
+- Consistent with method name patterns
 
-### 4. Dispatch on Types
+#### Hierarchical Organization
 
-**Your situation**: Different handling for different data types.
-
-```python
-processor = Switcher()
-
-@processor(typerule={'data': str})
-def process_string(data):
-    return data.upper()
-
-@processor(typerule={'data': int})
-def process_number(data):
-    return data * 2
-
-@processor(typerule={'data': list})
-def process_list(data):
-    return f"{len(data)} items"
-
-# Automatic dispatch based on type
-print(processor()(data="hello"))    # → "HELLO"
-print(processor()(data=42))         # → 84
-print(processor()(data=[1,2,3]))    # → "3 items"
-```
-
-## Combining Patterns
-
-You can mix patterns as needed:
-
-```python
-handler = Switcher()
-
-# Type AND value rules together
-@handler(typerule={'amount': int | float},
-         valrule=lambda amount: amount > 1000)
-def handle_large_amount(amount):
-    return f"Large: {amount}"
-
-@handler(typerule={'amount': int | float})
-def handle_normal_amount(amount):
-    return f"Normal: {amount}"
-
-@handler
-def handle_other(amount):
-    return f"Invalid: {amount}"
-
-# Automatic dispatch
-print(handler()(amount=5000))    # → "Large: 5000"
-print(handler()(amount=50))      # → "Normal: 50"
-print(handler()(amount="bad"))   # → "Invalid: bad"
-```
-
-## Two Ways to Use
-
-SmartSwitch offers two calling patterns:
-
-```python
-sw = Switcher()
-
-@sw
-def my_handler(x):
-    return x * 2
-
-# 1. By name - you choose the handler
-result = sw('my_handler')(x=5)  # → 10
-
-# 2. Automatic - rules choose the handler
-# (when using typerule/valrule)
-result = sw()(x=5)  # → 10 if my_handler matches
-```
-
-## Real Example: API Router
-
-```python
-api = Switcher()
-
-@api(valrule=lambda method, path: method == 'GET' and path == '/users')
-def list_users(method, path):
-    return {"users": ["Alice", "Bob"]}
-
-@api(valrule=lambda method, path: method == 'POST' and path == '/users')
-def create_user(method, path):
-    return {"created": True}
-
-@api
-def not_found(method, path):
-    return {"error": "Not Found"}
-
-# Use it
-response = api()(method='GET', path='/users')
-print(response)  # → {"users": ["Alice", "Bob"]}
-```
-
-## Next Steps
-
-- Learn more in the [Basic Usage Guide](basic.md)
-- See more examples in [Examples](../examples/index.md)
-- Check out the detailed guides: [Named Handlers](../guide/named-handlers.md), [Plugin System](../plugins/index.md)
-
-## Quick Reference
+**Your situation**: You have multiple related registries and want to organize them.
 
 ```python
 from smartswitch import Switcher
 
-sw = Switcher()
+class MyAPI:
+    # Main switcher
+    main = Switcher(name="main")
 
-# Register by function name
+    # Child switchers
+    users = Switcher(name="users", parent=main, prefix="user_")
+    products = Switcher(name="products", parent=main, prefix="product_")
+
+    @users
+    def user_list(self):
+        return ["alice", "bob"]
+
+    @users
+    def user_create(self, name):
+        return f"Created user: {name}"
+
+    @products
+    def product_list(self):
+        return ["laptop", "phone"]
+
+# Direct access to child switchers
+api = MyAPI()
+api.users('list')()  # → ["alice", "bob"]
+
+# Hierarchical access via parent
+api.main('users.list')()  # → ["alice", "bob"]
+api.main('users.create')("charlie")  # → "Created user: charlie"
+
+# Discover structure
+for child in api.main._children.values():
+    print(f"{child.name}: {list(child._methods.keys())}")
+# Output:
+# users: ['list', 'create']
+# products: ['list']
+```
+
+**Benefits:**
+- Clear namespace organization
+- Both direct and hierarchical access
+- Easy to discover available handlers
+- Parent can route to children with dotted paths
+
+### Pattern 2: Plugin System
+
+**Your situation**: You need cross-cutting functionality (logging, caching, validation) without modifying handlers.
+
+#### Basic Plugin Usage
+
+```python
+from smartswitch import Switcher
+
+# Add logging plugin
+sw = Switcher().plug('logging', mode='silent', time=True)
+
 @sw
-def my_function(): pass
+def calculate(x, y):
+    return x + y
 
-# Register with alias
-@sw('alias_name')
-def my_function(): pass
+# Use normally
+result = sw('calculate')(10, 5)  # → 15
 
-# Register with value rule
-@sw(valrule=lambda x: x > 10)
-def handle_large(x): pass
+# Access plugin to inspect history
+history = sw.logging.history()
+print(history)
+# → [{'handler': 'calculate', 'args': (10, 5), 'result': 15, 'duration': 0.001, ...}]
 
-# Register with type rule
-@sw(typerule={'x': int})
-def handle_int(x): pass
+# Analyze performance
+slowest = sw.logging.history(slowest=3)
+errors = sw.logging.history(only_errors=True)
 
-# Register with both
-@sw(typerule={'x': int}, valrule=lambda x: x > 0)
-def handle_positive_int(x): pass
+# Clear history
+sw.logging.clear()
+```
 
-# Call by name
-sw('my_function')()
+**Why plugins:**
+- Add functionality without modifying handler code
+- Composable - chain multiple plugins
+- Each plugin focused on one concern
+- Enable/disable at runtime
 
-# Automatic dispatch
-sw()(x=value)
+#### Creating Custom Plugins
+
+```python
+from smartswitch import BasePlugin
+
+class ValidationPlugin(BasePlugin):
+    """Validate arguments before handler execution."""
+
+    def wrap_handler(self, switch, entry, call_next):
+        def wrapper(*args, **kwargs):
+            # Custom validation
+            if not args and not kwargs:
+                raise ValueError("No arguments provided")
+            # Call actual handler
+            return call_next(*args, **kwargs)
+        return wrapper
+
+# Use custom plugin
+sw = Switcher().plug(ValidationPlugin())
+
+@sw
+def process(data):
+    return f"Processed: {data}"
+
+# Plugin validates automatically
+result = sw('process')("test")  # → "Processed: test"
+sw('process')()  # Raises ValueError: No arguments provided
+```
+
+#### Chaining Multiple Plugins
+
+```python
+from smartswitch import Switcher
+
+# Chain plugins - they execute in order
+sw = (Switcher()
+      .plug('logging', mode='silent')
+      .plug(ValidationPlugin())
+      .plug(CachePlugin(ttl=300)))
+
+@sw
+def expensive_operation(x):
+    # Execution order: logging → validation → cache → handler
+    return x * 2
+
+result = sw('expensive_operation')(5)
+```
+
+**Execution flow:**
+1. Logging plugin records start
+2. Validation plugin checks arguments
+3. Cache plugin checks for cached result
+4. Handler executes (if not cached)
+5. Plugins unwind in reverse order
+
+## Real-World Example: API Router
+
+Combining both patterns for a practical application:
+
+```python
+from smartswitch import Switcher
+
+# Create API with logging
+api = Switcher(name="api").plug('logging', mode='silent', time=True)
+
+@api('list_users')
+def get_users(page=1):
+    # Simulate database query
+    return {"users": ["Alice", "Bob", "Charlie"], "page": page}
+
+@api('create_user')
+def create_user(name):
+    # Simulate user creation
+    return {"id": 123, "name": name, "created": True}
+
+@api('delete_user')
+def delete_user(user_id):
+    return {"id": user_id, "deleted": True}
+
+@api('not_found')
+def handle_404():
+    return {"error": "Not Found", "status": 404}
+
+# Request handler
+def handle_request(endpoint, **kwargs):
+    """Route requests to appropriate handlers."""
+    handler = api._methods.get(endpoint)
+    if handler:
+        return api(endpoint)(**kwargs)
+    return api('not_found')()
+
+# Use it
+response = handle_request('list_users', page=2)
+print(response)  # → {"users": [...], "page": 2}
+
+response = handle_request('create_user', name='Dave')
+print(response)  # → {"id": 123, "name": "Dave", "created": True}
+
+response = handle_request('unknown_endpoint')
+print(response)  # → {"error": "Not Found", "status": 404}
+
+# Analyze performance
+print("\nSlowest operations:")
+for entry in api.logging.history(slowest=3):
+    print(f"{entry['handler']}: {entry['duration']:.4f}s")
+```
+
+## Key Concepts Summary
+
+### Named Handler Registry
+
+- **Register by name**: `@sw` uses function name
+- **Register with alias**: `@sw('alias')` uses custom name
+- **Auto-naming**: `Switcher(prefix='do_')` strips prefix automatically
+- **Call by name**: `sw('handler_name')(args)`
+- **Hierarchical**: `parent('child.handler')(args)` for organized systems
+
+### Plugin System
+
+- **Add plugins**: `sw.plug('logging')` or `sw.plug(CustomPlugin())`
+- **Access plugins**: `sw.logging.method()` or `sw.plugin('logging').method()`
+- **Chain plugins**: `sw.plug(A).plug(B).plug(C)`
+- **Custom plugins**: Inherit from `BasePlugin`, implement `wrap_handler()`
+
+## Next Steps
+
+Now that you understand the basics:
+
+1. **[Basic Usage Guide](basic.md)** - Deeper dive into patterns and edge cases
+2. **[Named Handlers Guide](../guide/named-handlers.md)** - Advanced registry patterns
+3. **[Plugin Development](../plugins/development.md)** - Build your own plugins
+4. **[Examples](../examples/index.md)** - More real-world examples
+
+## Quick Reference
+
+```python
+from smartswitch import Switcher, BasePlugin
+
+# Create switcher
+sw = Switcher()
+sw = Switcher(name="api", prefix="api_")  # with name and prefix
+sw = Switcher(parent=parent_sw)  # with parent
+
+# Add plugins
+sw.plug('logging', mode='silent', time=True)
+sw.plug(CustomPlugin(config="value"))
+
+# Register handlers
+@sw
+def handler_name(arg): pass
+
+@sw('custom_alias')
+def handler_function(arg): pass
+
+# Call handlers
+result = sw('handler_name')(arg)
+result = sw('custom_alias')(arg)
+result = parent_sw('child.handler')(arg)  # hierarchical
+
+# Access plugins
+sw.plugin('logging').history()
+sw.logging.history()  # shorthand via attribute
+
+# Introspection
+sw._methods  # dict of registered handlers
+sw._children  # dict of child switchers
+sw.describe()  # full description
 ```

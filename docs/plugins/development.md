@@ -589,10 +589,8 @@ print(sw.counter.get_count('my_handler'))  # From counter plugin
 
 **Standard plugins** (shipped with SmartSwitch):
 - Can be loaded by string name: `sw.plug('logging')`
-- Registered in `Switcher._get_standard_plugin()`
-- Examples: `logging`, `pydantic`
-
-**Note**: `typerule` and `valrule` are **decorators**, not plugins. They work differently.
+- Registered via `Switcher.register_plugin()`
+- Examples: `logging`
 
 **External plugins** (third-party packages):
 - Must be imported and instantiated: `sw.plug(MyPlugin())`

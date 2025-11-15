@@ -1,7 +1,7 @@
 # SmartSwitch - LLM Quick Reference
 
 ## Core Purpose
-Intelligent rule-based function dispatch replacing if-elif chains with declarative rules. Supports type-based, value-based, and named dispatch with ~2μs overhead.
+Named function registry and plugin system for Python. Register handlers by name, organize them hierarchically, and extend functionality with plugins. ~2μs dispatch overhead.
 
 ## Installation
 ```bash
@@ -10,7 +10,7 @@ pip install smartswitch
 
 ## Essential Patterns
 
-### 1. Named Dispatch (Most Common)
+### 1. Named Handler Registry
 ```python
 from smartswitch import Switcher
 
@@ -29,71 +29,27 @@ result = ops('save_data')(data)
 result = ops('custom_name')(data)
 ```
 
-### 2. Value-Based Dispatch
-```python
-users = Switcher()
-
-@users(valrule=lambda user_type, reason: 
-       user_type == 'admin' and reason == 'urgent')
-def escalate(user_type, reason):
-    return "Escalated"
-
-@users(valrule=lambda reason: reason == 'urgent')
-def prioritize(user_type, reason):
-    return "Priority"
-
-@users  # Default fallback
-def handle_normal(user_type, reason):
-    return "Normal"
-
-# Automatic dispatch by rules
-result = users()(user_type='admin', reason='urgent')  # → escalate()
-result = users()(user_type='user', reason='urgent')   # → prioritize()
-```
-
-### 3. Type-Based Dispatch
-```python
-processor = Switcher()
-
-@processor(typerule={'data': str})
-def process_string(data):
-    return data.upper()
-
-@processor(typerule={'data': int})
-def process_number(data):
-    return data * 2
-
-@processor(typerule={'data': list})
-def process_list(data):
-    return len(data)
-
-# Automatic dispatch by type
-processor()(data="hello")  # → HELLO
-processor()(data=42)       # → 84
-processor()(data=[1,2,3])  # → 3
-```
-
-### 4. Hierarchical Structure (API Organization)
+### 2. Hierarchical Organization
 ```python
 class MyAPI:
     root = Switcher(name="api")
     users = root.add(Switcher(name="users", prefix="user_"))
     products = root.add(Switcher(name="products", prefix="product_"))
-    
+
     @users
-    def user_list(self): 
+    def user_list(self):
         return ["alice", "bob"]
-    
+
     @products
-    def product_list(self): 
+    def product_list(self):
         return ["laptop", "phone"]
 
 api = MyAPI()
-api.users('list')()              # Direct
+api.users('list')()              # Direct access
 api.root('users.list')()         # Via hierarchy
 ```
 
-### 5. Prefix-Based Auto-Naming
+### 3. Prefix-Based Auto-Naming
 ```python
 handlers = Switcher(prefix='handle_')
 
@@ -108,15 +64,37 @@ def handle_refund(amount):
 handlers('payment')(100)
 ```
 
+### 4. Plugin System (v0.5.0+)
+```python
+from smartswitch import Switcher, BasePlugin
+
+class LoggingPlugin(BasePlugin):
+    def wrap_handler(self, func, name, switcher):
+        def wrapper(*args, **kwargs):
+            print(f"Calling {name}")
+            result = func(*args, **kwargs)
+            print(f"Result: {result}")
+            return result
+        return wrapper
+
+sw = Switcher(plugins=[LoggingPlugin()])
+
+@sw
+def process(data):
+    return f"Processed: {data}"
+
+sw('process')("test")  # Logs before and after
+```
+
 ## Method Binding (Class Usage)
 ```python
 class Service:
     ops = Switcher()
-    
+
     @ops
     def save(self, data):
         return f"Saved by {self.name}"
-    
+
     def __init__(self, name):
         self.name = name
 
@@ -128,21 +106,13 @@ svc.ops('save')("data")  # 'self' bound automatically
 
 1. **Decorator registration** = module-level (thread-safe)
 2. **Handler dispatch** = runtime (fully thread-safe)
-3. **Rule priority**: specific rules → default handler
-4. **valrule calling**:
-   - Expanded: `lambda x, y: x > 10` 
-   - Compact dict: `lambda kw: kw['x'] > 10`
-   - Compact unpack: `lambda **kw: kw.get('x') > 10`
+3. **Named dispatch only** - No automatic rule-based dispatch
+4. **Plugin hooks**: `on_decorate()` and `wrap_handler()`
 
-## Common Anti-Patterns
+## Common Use Cases
 
-❌ **Don't**: Runtime decorator registration in threads
+✅ **Do**: API routers, method registries, plugin architectures, hierarchical organization
 ❌ **Don't**: Use for 2-3 simple cases (use if/elif)
-❌ **Don't**: For pure type dispatch (use singledispatch)
-
-✅ **Do**: API routers, business logic, extensible systems
-✅ **Do**: When combining type + value rules
-✅ **Do**: Plugin architectures
 
 ## Quick Introspection
 ```python
@@ -154,22 +124,22 @@ sw.parent           # Parent Switcher or None
 
 ## Advanced Features
 See additional files in llm-docs/:
-- **LOGGING.md**: History tracking, performance analysis (v0.4.0)
-- **API-DETAILS.md**: Complete API reference
-- **PATTERNS.md**: Real-world usage patterns
+- **API-DETAILS.md**: Complete API reference with all methods and parameters
+- **PATTERNS.md**: Real-world usage patterns from production code
 
-For complete documentation including plugin system (v0.5.0+), see `docs/` directory:
+For complete documentation including plugin system, see `docs/` directory:
 - Core features: `docs/guide/`
-- Plugin system: `docs/plugins/` (development, middleware, logging)
+- Plugin development: `docs/plugins/`
+- Examples: `docs/examples/`
 
 ## Version
-Current: 0.6.0 (Python 3.10+)
+Current: 0.9.2 (Python 3.10+)
 
 ## Performance
 ~2μs dispatch overhead. Negligible for typical business logic (DB, API calls, etc.)
 
 ## Quick Troubleshooting
 
-**"No rule matched"**: Add default handler with `@sw` (no rules)
+**Name not found**: Check registered names with `sw.entries()`
 **Name collision**: Use custom aliases `@sw('unique_name')`
-**Type not matching**: Check Union syntax: `int | str` not `Union[int, str]`
+**Method binding issue**: Ensure Switcher is class attribute, not instance

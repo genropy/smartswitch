@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartswitch"
-version = "0.9.1"
-description = "Intelligent rule-based function dispatch for Python"
+version = "0.9.2"
+description = "Named function registry and plugin system for Python"
 authors = [
     {name = "Giovanni Porcari", email = "softwell@softwell.it"},
 ]
