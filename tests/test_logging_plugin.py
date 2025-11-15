@@ -596,3 +596,45 @@ class TestGranularConfiguration:
         sw("process_me")(2)
         captured = capsys.readouterr()
         assert "← process_me() → 2" in captured.out
+
+
+class TestLoggingPluginInternal:
+    """Test internal implementation details for coverage."""
+
+    def test_output_uses_global_config_when_cfg_is_none(self, capsys):
+        """Test that _output() uses global config when cfg=None (line 143)."""
+        plugin = LoggingPlugin(flags="print,enabled")
+
+        # Call _output with cfg=None - should use global config
+        plugin._output("Test message", cfg=None)
+
+        captured = capsys.readouterr()
+        assert "Test message" in captured.out
+
+    def test_plugin_disabled_early_return(self, capsys):
+        """Test early return when plugin disabled (line 203)."""
+        sw = Switcher().plug("logging", flags="print,enabled:off")
+
+        @sw
+        def handler(x):
+            return x * 2
+
+        # Plugin disabled - no logging
+        result = sw("handler")(5)
+
+        assert result == 10
+        captured = capsys.readouterr()
+        assert captured.out == ""  # No output when disabled
+
+    def test_on_decorate_is_called_during_decoration(self):
+        """Test that on_decorate is called (covers line 176 pass statement)."""
+        sw = Switcher().plug("logging", flags="print,enabled")
+
+        # Decorate a function - this calls on_decorate internally
+        @sw
+        def handler():
+            return "test"
+
+        # Function should work normally (on_decorate does nothing)
+        result = sw("handler")()
+        assert result == "test"

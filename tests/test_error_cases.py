@@ -176,5 +176,98 @@ class TestPluginConfiguration(unittest.TestCase):
         self.assertEqual(plugin.config["param2"], "value2")
 
 
+class TestSwitcherParentErrors(unittest.TestCase):
+    """Test error handling for parent-related methods."""
+
+    def test_use_parent_plugins_no_parent(self):
+        """Test use_parent_plugins() raises ValueError when no parent."""
+        sw = Switcher()  # No parent
+
+        with self.assertRaises(ValueError) as cm:
+            sw.use_parent_plugins()
+
+        self.assertIn("no parent", str(cm.exception))
+
+    def test_copy_plugins_from_parent_no_parent(self):
+        """Test copy_plugins_from_parent() raises ValueError when no parent."""
+        sw = Switcher()  # No parent
+
+        with self.assertRaises(ValueError) as cm:
+            sw.copy_plugins_from_parent()
+
+        self.assertIn("no parent", str(cm.exception))
+
+
+class TestSwitcherAttributeErrors(unittest.TestCase):
+    """Test AttributeError handling for plugin access."""
+
+    def test_getattr_plugin_not_found(self):
+        """Test that accessing non-existent plugin raises AttributeError."""
+        sw = Switcher()
+
+        with self.assertRaises(AttributeError) as cm:
+            _ = sw.nonexistent_plugin
+
+        # Check error message contains key info
+        self.assertIn("no attribute", str(cm.exception))
+        self.assertIn("nonexistent_plugin", str(cm.exception))
+
+
+class TestSwitcherCallErrors(unittest.TestCase):
+    """Test TypeError handling for invalid __call__ usage."""
+
+    def test_call_with_string_and_extra_args(self):
+        """Test that calling with string + extra args raises TypeError."""
+        sw = Switcher()
+
+        with self.assertRaises(TypeError) as cm:
+            sw("handler", "extra")  # Extra positional arg
+
+        self.assertIn("only supports a single string argument", str(cm.exception))
+
+    def test_call_with_string_and_kwargs(self):
+        """Test that calling with string + kwargs raises TypeError."""
+        sw = Switcher()
+
+        with self.assertRaises(TypeError) as cm:
+            sw("handler", key="value")
+
+        self.assertIn("only supports a single string argument", str(cm.exception))
+
+    def test_call_with_non_callable_non_string(self):
+        """Test that calling with non-callable, non-string raises TypeError."""
+        sw = Switcher()
+
+        with self.assertRaises(TypeError) as cm:
+            sw(123)  # Not callable, not string
+
+        self.assertIn("no longer supports implicit dispatch", str(cm.exception))
+
+
+class TestSwitcherDispatchErrors(unittest.TestCase):
+    """Test dispatch error handling."""
+
+    def test_dispatch_unknown_method(self):
+        """Test that dispatching unknown method raises KeyError."""
+        sw = Switcher()
+
+        # Try to call non-existent handler
+        with self.assertRaises(KeyError) as cm:
+            sw("nonexistent_handler")()
+
+        self.assertIn("Unknown method", str(cm.exception))
+        self.assertIn("nonexistent_handler", str(cm.exception))
+
+
+class TestIterUnboundSwitchersEdgeCases(unittest.TestCase):
+    """Test edge cases in _iter_unbound_switchers."""
+
+    def test_iter_unbound_switchers_with_none(self):
+        """Test _iter_unbound_switchers returns empty when source is None."""
+        result = list(Switcher._iter_unbound_switchers(None))
+
+        self.assertEqual(result, [])
+
+
 if __name__ == "__main__":
     unittest.main()

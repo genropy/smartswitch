@@ -449,3 +449,36 @@ class TestPydanticPluginConfigure:
 
         # Verify it's accessible via __getattr__
         assert sw.pydantic is sw.plugin("pydantic")
+
+
+class TestPydanticPluginEdgeCases:
+    """Test edge cases and error handling in PydanticPlugin."""
+
+    def test_unresolvable_type_hints_disables_validation(self):
+        """Test that get_type_hints exception disables validation (lines 78-81)."""
+        # Import to avoid NameError at runtime
+        from typing import ForwardRef
+
+        sw = Switcher().plug("pydantic")
+
+        # Create function with problematic annotation that will cause get_type_hints to fail
+        # Using a forward reference that can't be resolved
+        @sw
+        def handler_with_bad_hint(x: "NonExistentTypeInThisScope") -> int:
+            return x
+
+        # The function should still be callable (validation disabled due to error)
+        result = sw("handler_with_bad_hint")(42)
+        assert result == 42
+
+    def test_signature_binding_error_propagates(self):
+        """Test that TypeError during signature binding propagates (lines 154-156)."""
+        sw = Switcher().plug("pydantic")
+
+        @sw
+        def handler(x: int, y: int) -> int:
+            return x + y
+
+        # Call with wrong number of arguments - should raise TypeError
+        with pytest.raises(TypeError):
+            sw("handler")(42)  # Missing required argument 'y'
