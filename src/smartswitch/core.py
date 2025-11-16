@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type
 
 from smartasync import smartasync
-from smartseeds import SmartOptions, extract_kwargs
+from smartseeds import extract_kwargs
 
 # ============================================================
 # THREAD-LOCAL CONTEXT
@@ -573,7 +573,8 @@ class Switcher:
         Raises:
             NotImplementedError: If handler not found and no default_handler provided
         """
-        opts = SmartOptions(incoming=options, defaults=self.get_kwargs)
+        # Merge incoming options with defaults (incoming takes precedence)
+        opts = {**(self.get_kwargs or {}), **options}
 
         # Resolve dotted path if present (e.g., "child.method")
         node, method_name = self._resolve_path(name)
@@ -583,7 +584,7 @@ class Switcher:
 
         if entry is None:
             # Handler not found - use default if provided
-            default = getattr(opts, "default_handler", None)
+            default = opts.get("default_handler")
             if default is not None:
                 handler = default
             else:
@@ -593,7 +594,7 @@ class Switcher:
             handler = entry._wrapped  # type: ignore[attr-defined]
 
         # Wrap with smartasync if requested
-        if getattr(opts, "use_smartasync", False):
+        if opts.get("use_smartasync", False):
             handler = smartasync(handler)
 
         return handler
