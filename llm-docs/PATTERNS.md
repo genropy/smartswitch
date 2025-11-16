@@ -20,9 +20,9 @@ class UserAPI:
         return {"updated": user_id, "fields": fields}
 
 api = UserAPI()
-api.operations('create')("alice", "alice@example.com")
-api.operations('delete')(123)
-api.operations('update')(123, email="new@example.com")
+api.operations['create']("alice", "alice@example.com")
+api.operations['delete'](123)
+api.operations['update'](123, email="new@example.com")
 ```
 
 ## Hierarchical API Structure
@@ -73,12 +73,12 @@ class ProductionAPI:
 api = ProductionAPI()
 
 # Direct access
-api.users('list')(filters={'active': True})
+api.users['list'](filters={'active': True})
 
 # Hierarchical access (dot notation)
-api.api('users.list')(filters={'active': True})
-api.api('products.search')(query="laptop")
-api.api('orders.get')(order_id=123)
+api.api['users.list'](filters={'active': True})
+api.api['products.search'](query="laptop")
+api.api['orders.get'](order_id=123)
 
 # Introspection
 api.api.entries()              # ['users', 'products', 'orders']
@@ -114,8 +114,8 @@ processor = CommandProcessor()
 context = {}
 
 # Execute commands by name
-processor.commands('start')(context)
-processor.commands('restart')(context)
+processor.commands['start'](context)
+processor.commands['restart'](context)
 ```
 
 ## Plugin Pattern - Middleware
@@ -165,7 +165,7 @@ def process_payment(amount, currency):
     return {"status": "success", "amount": amount, "currency": currency}
 
 # Logs automatically
-api('process_payment')(100, "USD")
+api['process_payment'](100, "USD")
 # Output:
 # [api] Calling process_payment
 #   Args: (100, 'USD'), Kwargs: {}
@@ -173,7 +173,7 @@ api('process_payment')(100, "USD")
 
 # Runtime configuration
 api.requestlog.configure['process_payment'].flags = 'enabled,show_result'
-api('process_payment')(200, "EUR")  # Only shows result, not args
+api['process_payment'](200, "EUR")  # Only shows result, not args
 ```
 
 ## Plugin Pattern - Validation
@@ -194,14 +194,133 @@ def create_user(name: str, age: int, email: str):
     return {"name": name, "age": age, "email": email}
 
 # Valid call
-sw('create_user')("Alice", 30, "alice@example.com")
+sw['create_user']("Alice", 30, "alice@example.com")
 
 # Invalid call - raises ValidationError
 try:
-    sw('create_user')("Alice", "thirty", "alice@example.com")  # age must be int
+    sw['create_user']("Alice", "thirty", "alice@example.com")  # age must be int
 except Exception as e:
     print(f"Validation failed: {e}")
 ```
+
+## Bidirectional Sync/Async Pattern (v0.10.0+)
+
+### CLI + FastAPI with Same Handlers
+
+**Use case**: Serve the same business logic through both sync CLI commands and async FastAPI endpoints.
+
+```python
+from smartswitch import Switcher
+import click
+from fastapi import FastAPI
+
+# Create switcher with SmartAsync enabled
+ops = Switcher(get_use_smartasync=True)
+
+# Register business logic handlers (written as normal sync functions)
+@ops
+def get_users(filters: dict | None = None):
+    """Get users from database."""
+    # Business logic here (sync code)
+    users = db.query_users(filters or {})
+    return {"users": users, "count": len(users)}
+
+@ops
+def create_user(name: str, email: str):
+    """Create new user."""
+    user_id = db.insert_user({"name": name, "email": email})
+    return {"id": user_id, "name": name, "email": email}
+
+@ops
+def delete_user(user_id: int):
+    """Delete user by ID."""
+    db.delete_user(user_id)
+    return {"deleted": user_id}
+
+# ============================================
+# CLI Interface (Sync Context) - using Click
+# ============================================
+@click.group()
+def cli():
+    """User management CLI."""
+    pass
+
+@cli.command()
+@click.option('--active/--inactive', default=True)
+def list_users(active):
+    """List all users."""
+    # Call handler synchronously
+    result = ops['get_users'](filters={'active': active})
+    for user in result['users']:
+        click.echo(f"- {user['name']} ({user['email']})")
+
+@cli.command()
+@click.argument('name')
+@click.argument('email')
+def add_user(name, email):
+    """Add a new user."""
+    # Call handler synchronously
+    result = ops['create_user'](name, email)
+    click.echo(f"Created user {result['id']}: {result['name']}")
+
+@cli.command()
+@click.argument('user_id', type=int)
+def remove_user(user_id):
+    """Remove user by ID."""
+    # Call handler synchronously
+    result = ops['delete_user'](user_id)
+    click.echo(f"Deleted user {result['deleted']}")
+
+# ============================================
+# FastAPI Interface (Async Context)
+# ============================================
+app = FastAPI()
+
+@app.get("/users")
+async def api_get_users(active: bool = True):
+    """Get users - async endpoint."""
+    # Same handler, called in async context
+    return await ops['get_users'](filters={'active': active})
+
+@app.post("/users")
+async def api_create_user(name: str, email: str):
+    """Create user - async endpoint."""
+    # Same handler, called in async context
+    return await ops['create_user'](name, email)
+
+@app.delete("/users/{user_id}")
+async def api_delete_user(user_id: int):
+    """Delete user - async endpoint."""
+    # Same handler, called in async context
+    return await ops['delete_user'](user_id)
+
+# ============================================
+# Usage
+# ============================================
+
+# CLI (sync):
+#   $ python app.py list-users --active
+#   $ python app.py add-user Alice alice@example.com
+
+# FastAPI (async):
+#   GET  /users?active=true
+#   POST /users?name=Alice&email=alice@example.com
+#   DELETE /users/123
+```
+
+**Key benefits**:
+- **Single source of truth**: Business logic written once
+- **No duplication**: Same handlers for CLI and API
+- **Transparent**: No async/await in business logic
+- **Flexible**: Works in both sync and async contexts
+- **Type-safe**: Add PydanticPlugin for validation
+
+**How it works**:
+1. Handlers registered as normal sync functions
+2. `get_use_smartasync=True` wraps all handlers with SmartAsync
+3. CLI calls handlers synchronously (SmartAsync detects sync context)
+4. FastAPI awaits handlers (SmartAsync detects async context)
+5. SmartAsync handles context switching transparently
 
 ## Plugin Pattern - Custom Lifecycle
 
@@ -211,7 +330,7 @@ from smartswitch import Switcher, BasePlugin
 import time
 
 class InitializerPlugin(BasePlugin):
-    def on_decorate(self, switch, func, entry):
+    def on_decore(self, switch, func, entry):
         """Called when handler is decorated (before wrapping)."""
         print(f"Registered {entry.name} in {switch.name}")
         # Store metadata in entry
@@ -222,7 +341,7 @@ class InitializerPlugin(BasePlugin):
     def wrap_handler(self, switch, entry, call_next):
         """Called to wrap the handler."""
         def wrapper(*args, **kwargs):
-            # Access metadata stored during on_decorate
+            # Access metadata stored during on_decore
             if hasattr(entry, '_init_meta'):
                 registered_at = entry._init_meta.get('registered_at')
                 print(f"Handler registered at {registered_at}")
@@ -266,6 +385,9 @@ class EventSystem:
 events = EventSystem()
 events.trigger('user_login', user_id=123)
 events.trigger('payment_received', amount=100)
+
+# Or direct access
+events.handlers['user_login'](user_id=123)
 ```
 
 ## Dynamic Handler Discovery
@@ -292,7 +414,7 @@ handlers = api.entries()  # ['get_users', 'get_products', 'get_orders']
 # Call all handlers dynamically
 results = {}
 for handler_name in handlers:
-    results[handler_name] = api(handler_name)()
+    results[handler_name] = api[handler_name]()
 
 print(results)
 # {
@@ -326,8 +448,8 @@ class DatabaseService:
 
 # Instance method binding
 db = DatabaseService("postgresql://...")
-db.operations('save')("users", {"name": "Alice"})  # 'self' bound automatically
-db.operations('load')("users", 123)
+db.operations['save']("users", {"name": "Alice"})  # 'self' bound automatically
+db.operations['load']("users", 123)
 ```
 
 ## Plugin Chaining
@@ -393,7 +515,7 @@ def process(data):
     time.sleep(0.1)
     return f"Processed: {data}"
 
-sw('process')("test")
+sw['process']("test")
 # Output:
 # → Calling process
 # process took 0.1002s
@@ -401,7 +523,7 @@ sw('process')("test")
 
 # Runtime configuration
 sw.calllog.configure['process'].enabled = False
-sw('process')("test")  # Only shows timing, not call log
+sw['process']("test")  # Only shows timing, not call log
 ```
 
 ## Best Practices

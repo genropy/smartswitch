@@ -64,7 +64,7 @@ class TestThreadSafety(unittest.TestCase):
             """Worker thread that calls service multiple times."""
             try:
                 for i in range(iterations):
-                    result = Service.ops("process")(service, worker_id * 100 + i)
+                    result = Service.ops["process"](service, worker_id * 100 + i)
                     results.append(result)
                     time.sleep(0.001)  # Small delay to increase interleaving
             except Exception as e:
@@ -107,7 +107,7 @@ class TestThreadSafety(unittest.TestCase):
         def worker(thread_id, iterations):
             """Each thread increments and reads its own counter."""
             for _ in range(iterations):
-                Counter.ops("increment")(counter)
+                Counter.ops["increment"](counter)
 
             # Read thread-specific count
             count = Counter.ops.get_runtime_data(
@@ -155,7 +155,7 @@ class TestThreadSafety(unittest.TestCase):
 
             # Make calls
             for i in range(3):
-                API.handlers("call")(api, f"disabled-{thread_id}-{i}")
+                API.handlers["call"](api, f"disabled-{thread_id}-{i}")
 
             # Check count (should be 0 because plugin was disabled)
             count = API.handlers.get_runtime_data(
@@ -167,7 +167,7 @@ class TestThreadSafety(unittest.TestCase):
             """Worker with plugin enabled (default)."""
             # Make calls (plugin enabled by default)
             for i in range(3):
-                API.handlers("call")(api, f"enabled-{thread_id}-{i}")
+                API.handlers["call"](api, f"enabled-{thread_id}-{i}")
 
             # Check count (should be 3)
             count = API.handlers.get_runtime_data(
@@ -225,7 +225,7 @@ class TestThreadSafety(unittest.TestCase):
             """Worker that processes items."""
             try:
                 for i in range(count):
-                    result = Service.ops("process")(service, f"worker-{worker_id}-item-{i}")
+                    result = Service.ops["process"](service, f"worker-{worker_id}-item-{i}")
                     results.append(result)
             except Exception as e:
                 errors.append(e)
@@ -288,7 +288,7 @@ class TestThreadSafety(unittest.TestCase):
         def worker(iterations):
             """Worker that increments counter."""
             for _ in range(iterations):
-                SharedCounter.ops("increment_shared")(counter)
+                SharedCounter.ops["increment_shared"](counter)
 
         # Start many threads
         threads = []

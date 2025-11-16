@@ -161,7 +161,7 @@ class LoggingPlugin(BasePlugin):
             parts.extend(f"{k}={repr(v)}" for k, v in kwargs.items())
         return ", ".join(parts)
 
-    def on_decorate(
+    def on_decore(
         self,
         switch: "Switcher",
         func: Callable,

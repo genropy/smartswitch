@@ -59,7 +59,7 @@ def load_data(data):
     return f"Loaded: {data}"
 
 # Call by name
-result = ops('save_data')("my_file.txt")
+result = ops['save_data']("my_file.txt")
 print(result)  # → "Saved: my_file.txt"
 ```
 
@@ -78,7 +78,7 @@ def remove_cache():
     return "Cache cleared"
 
 # Call with friendly alias
-result = ops('reset')()
+result = ops['reset']()
 print(result)  # → "Everything destroyed"
 ```
 
@@ -99,7 +99,7 @@ def protocol_gcs():
     return {"type": "gcs", "bucket": "data"}
 
 # Call by derived names
-result = protocols('s3_aws')()
+result = protocols['s3_aws']()
 print(result)  # → {"type": "s3", "region": "us-east-1"}
 ```
 
@@ -128,15 +128,15 @@ class MyAPI:
 
 # Direct access
 api = MyAPI()
-api.users('list')()  # → ["alice", "bob"]
+api.users['list']()  # → ["alice", "bob"]
 
 # Hierarchical access via parent
-api.main('users.list')()  # → ["alice", "bob"]
-api.main('products.list')()  # → ["laptop", "phone"]
+api.main['users.list']()  # → ["alice", "bob"]
+api.main['products.list']()  # → ["laptop", "phone"]
 
 # Discover children
-for child in api.main._children.values():
-    print(f"{child.name}: {list(child._methods.keys())}")
+for child in api.main.children:
+    print(f"{child.name}: {child.entries()}")
 ```
 
 ## Plugin System
@@ -154,7 +154,7 @@ def my_handler(x):
     return x * 2
 
 # Use handler - logs output automatically
-result = sw('my_handler')(5)  # → 10
+result = sw['my_handler'](5)  # → 10
 # Output: ← my_handler() → 10 (0.0001s)
 
 # Use before+after for debugging
@@ -164,7 +164,7 @@ sw_debug = Switcher().plug('logging', flags='print,enabled,after')
 def process(data):
     return f"Processed: {data}"
 
-sw_debug('process')("test")
+sw_debug['process']("test")
 # Output:
 # → process('test')
 # ← process() → Processed: test
@@ -197,7 +197,7 @@ def process(data):
     return f"Processed: {data}"
 
 # Plugin validates before execution
-result = sw('process')("test")  # → "Processed: test"
+result = sw['process']("test")  # → "Processed: test"
 ```
 
 ### Chaining Multiple Plugins
@@ -247,10 +247,9 @@ def handle_404():
 
 # Route requests
 def handle_request(endpoint, **kwargs):
-    handler = api._methods.get(endpoint)
-    if handler:
-        return api(endpoint)(**kwargs)
-    return api('not_found')()
+    if endpoint in api.entries():
+        return api[endpoint](**kwargs)
+    return api['not_found']()
 ```
 
 ### Command Dispatcher
@@ -268,11 +267,11 @@ def cmd_restore(source):
 
 @cli('help')
 def cmd_show_help():
-    return "Available commands: " + ", ".join(cli._methods.keys())
+    return "Available commands: " + ", ".join(cli.entries())
 
 # Dispatch commands
 command = input("Enter command: ")
-result = cli(command.split()[0])(*command.split()[1:])
+result = cli[command.split()[0]](*command.split()[1:])
 ```
 
 ### Event Handler
@@ -290,8 +289,8 @@ def on_user_deleted(user_id):
 
 # Emit events
 def emit(event_name, *args):
-    if event_name in events._methods:
-        events(event_name)(*args)
+    if event_name in events.entries():
+        events[event_name](*args)
 ```
 
 ## Key Features
@@ -300,9 +299,12 @@ def emit(event_name, *args):
 
 - **Named handler registry**: Register and call functions by name
 - **Custom aliases**: Use friendly names different from function names
+- **Dict-like access**: Clean `sw['name']()` syntax for handler retrieval
+- **Flexible retrieval**: `get()` method with runtime options (default handlers, async wrapping)
 - **Prefix-based naming**: Convention-driven automatic name derivation
 - **Hierarchical organization**: Parent-child Switcher relationships with dotted-path access
-- **Zero dependencies**: Pure Python 3.10+ standard library
+- **Bidirectional async**: Handlers work in both sync and async contexts (CLI + FastAPI)
+- **Minimal dependencies**: smartasync, smartseeds (both from Genro-Libs ecosystem)
 - **Type-safe**: Full type hints support
 
 ### Plugin System
@@ -347,7 +349,7 @@ See [Performance Best Practices](https://smartswitch.readthedocs.io/guide/best-p
 
 SmartSwitch is designed for typical Python usage patterns:
 
-- **Handler dispatch** (calling `sw('name')(args)`) is **fully thread-safe** - uses read-only operations
+- **Handler dispatch** (calling `sw['name'](args)`) is **fully thread-safe** - uses read-only operations
 - **Decorator registration** should be done at **module import time** (single-threaded)
 
 **Recommended usage**:
@@ -360,7 +362,7 @@ def my_handler(x):
     return x * 2
 
 # Runtime - called many times (thread-safe)
-result = switch('my_handler')(42)
+result = switch['my_handler'](42)
 ```
 
 For advanced scenarios requiring runtime registration in multi-threaded applications, external synchronization is needed.
@@ -388,7 +390,7 @@ For advanced scenarios requiring runtime registration in multi-threaded applicat
 - [API Reference](https://smartswitch.readthedocs.io/api/switcher/) - Complete API docs
 - [Architecture](https://smartswitch.readthedocs.io/appendix/architecture/) - Internal design
 
-**All examples in documentation are tested** - They come directly from our test suite with 82% coverage.
+**All examples in documentation are tested** - They come directly from our test suite with 92% coverage.
 
 ## License
 

@@ -24,9 +24,13 @@ def save_data(data):
 def process(data):
     return f"Processed: {data}"
 
-# Call by name
-result = ops('save_data')(data)
-result = ops('custom_name')(data)
+# Call by name - dict-like access
+result = ops['save_data'](data)
+result = ops['custom_name'](data)
+
+# Or with options
+handler = ops.get('save_data', use_smartasync=True)
+result = handler(data)
 ```
 
 ### 2. Hierarchical Organization
@@ -45,8 +49,8 @@ class MyAPI:
         return ["laptop", "phone"]
 
 api = MyAPI()
-api.users('list')()              # Direct access
-api.root('users.list')()         # Via hierarchy
+api.users['list']()              # Direct access
+api.root['users.list']()         # Via hierarchy
 ```
 
 ### 3. Prefix-Based Auto-Naming
@@ -61,7 +65,7 @@ def handle_payment(amount):
 def handle_refund(amount):
     return f"Refunding ${amount}"
 
-handlers('payment')(100)
+handlers['payment'](100)
 ```
 
 ### 4. Plugin System (v0.5.0+, updated v0.10.0)
@@ -100,7 +104,7 @@ sw = Switcher().plug('mylog', flags='enabled,verbose')
 def process(data):
     return f"Processed: {data}"
 
-sw('process')("test")  # Logs with config
+sw['process']("test")  # Logs with config
 # Runtime config: sw.mylog.configure.verbose = False
 ```
 
@@ -117,17 +121,18 @@ class Service:
         self.name = name
 
 svc = Service("DB")
-svc.ops('save')("data")  # 'self' bound automatically
+svc.ops['save']("data")  # 'self' bound automatically
 ```
 
 ## Critical Rules
 
 1. **Decorator registration** = module-level (thread-safe)
-2. **Handler dispatch** = runtime (fully thread-safe)
+2. **Handler retrieval** = `sw['name']` or `sw.get('name', **options)` (fully thread-safe)
 3. **Named dispatch only** - No automatic rule-based dispatch
-4. **Plugin hooks**: `on_decorate(switch, func, entry)` and `wrap_handler(switch, entry, call_next)`
+4. **Plugin hooks**: `on_decore(switch, func, entry)` and `wrap_handler(switch, entry, call_next)`
 5. **Plugin registration**: Use `Switcher.register_plugin(name, PluginClass)` then `.plug(name, flags=...)`
 6. **Plugin config** (v0.10.0+): Pydantic-based with runtime changes via `.configure`
+7. **SmartAsync wrapping** (v0.10.0+): Bidirectional sync/async support via `get_use_smartasync=True`
 
 ## Common Use Cases
 
@@ -156,6 +161,10 @@ For complete documentation including plugin system, see `docs/` directory:
 Current: 0.10.0 (Python 3.10+)
 
 **v0.10.0 highlights**:
+- **SmartAsync integration**: Bidirectional sync/async handler wrapping
+- **New API**: `get()` method and `__getitem__` dict-like access
+- **SmartSeeds integration**: Smart options with `extract_kwargs` decorator
+- **Flexible defaults**: `get_default_handler`, `get_use_smartasync` at init
 - Pydantic-based plugin configuration system
 - Runtime configuration with `.configure` property
 - `flags` parameter for boolean settings

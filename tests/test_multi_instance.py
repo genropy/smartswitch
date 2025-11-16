@@ -48,14 +48,14 @@ class TestMultipleInstances(unittest.TestCase):
         shop3 = Shop("shop3")
 
         # Each shop calls process different number of times
-        Shop.ops("process")(shop1, "A")
-        Shop.ops("process")(shop1, "B")
+        Shop.ops["process"](shop1, "A")
+        Shop.ops["process"](shop1, "B")
 
-        Shop.ops("process")(shop2, "X")
-        Shop.ops("process")(shop2, "Y")
-        Shop.ops("process")(shop2, "Z")
+        Shop.ops["process"](shop2, "X")
+        Shop.ops["process"](shop2, "Y")
+        Shop.ops["process"](shop2, "Z")
 
-        Shop.ops("process")(shop3, "1")
+        Shop.ops["process"](shop3, "1")
 
         # Verify separate counts
         count1 = Shop.ops.get_runtime_data(shop1, "process", "CounterPlugin", "count", 0)
@@ -87,8 +87,8 @@ class TestMultipleInstances(unittest.TestCase):
         Service.api.set_plugin_enabled(svc1, "call", "CounterPlugin", False)
 
         # Both call the method
-        Service.api("call")(svc1, "test1")
-        Service.api("call")(svc2, "test2")
+        Service.api["call"](svc1, "test1")
+        Service.api["call"](svc2, "test2")
 
         # svc1 should have count=0 (plugin disabled)
         # svc2 should have count=1 (plugin enabled)
@@ -167,8 +167,8 @@ class TestMultipleInstances(unittest.TestCase):
         API.handlers.set_plugin_enabled(api2, "endpoint", "Counter2", False)
 
         # Call endpoints
-        API.handlers("endpoint")(api1, "req1")
-        API.handlers("endpoint")(api2, "req2")
+        API.handlers["endpoint"](api1, "req1")
+        API.handlers["endpoint"](api2, "req2")
 
         # api1: Counter1=0 (disabled), Counter2=1 (enabled)
         # api2: Counter1=1 (enabled), Counter2=0 (disabled)

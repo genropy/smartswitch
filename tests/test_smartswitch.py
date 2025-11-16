@@ -79,21 +79,21 @@ class TestSwitcher(unittest.TestCase):
 
     def test_named_dispatch(self):
         obj = Child()
-        self.assertEqual(Child.main("run")(obj, 5), "run:5")
-        self.assertEqual(Child.main("special")(obj, 7), "special:7")
+        self.assertEqual(Child.main["run"](obj, 5), "run:5")
+        self.assertEqual(Child.main["special"](obj, 7), "special:7")
 
     def test_dotted_path_dispatch(self):
         obj = Child()
         # child switch is attached under main; we name it "child"
         Child.main.add_child(Child.child, name="child")
-        self.assertEqual(Child.main("child.child")(obj, 3), "child:3")
+        self.assertEqual(Child.main["child.child"](obj, 3), "child:3")
 
     def test_plugin_runtime_count(self):
         obj = Child()
         # Get initial count (may not be 0 on Windows due to ID reuse)
         initial_count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
-        Child.main("run")(obj, 1)
-        Child.main("run")(obj, 2)
+        Child.main["run"](obj, 1)
+        Child.main["run"](obj, 2)
         final_count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
         # Verify count incremented by 2, not absolute value
         self.assertEqual(final_count - initial_count, 2)
@@ -102,7 +102,7 @@ class TestSwitcher(unittest.TestCase):
         obj = Child()
         # disable CountPlugin for run on this instance
         Child.main.set_plugin_enabled(obj, "run", "CountPlugin", False)
-        Child.main("run")(obj, 1)
+        Child.main["run"](obj, 1)
         count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
         self.assertEqual(count, 0)
         # re-enable for other tests
@@ -113,7 +113,7 @@ class TestSwitcher(unittest.TestCase):
         Child.main.set_runtime_data(obj, "run", "CountPlugin", "extra", "before")
         Child.main.set_plugin_enabled(obj, "run", "CountPlugin", False)
         try:
-            Child.main("run")(obj, 1)
+            Child.main["run"](obj, 1)
             count = Child.main.get_runtime_data(obj, "run", "CountPlugin", "count", 0)
             self.assertEqual(count, 0)
             self.assertEqual(
@@ -219,9 +219,9 @@ class TestSwitcher(unittest.TestCase):
 
         Owner.gate.plugin("GatePlugin").configure["do_block"].blocked = True
         obj = Owner()
-        self.assertEqual(Owner.gate("do_run")(obj, 1), "run:1")
+        self.assertEqual(Owner.gate["do_run"](obj, 1), "run:1")
         with self.assertRaises(RuntimeError):
-            Owner.gate("do_block")(obj, 2)
+            Owner.gate["do_block"](obj, 2)
 
     def test_plugin_config_enabled_flag(self):
         class Owner:
@@ -235,9 +235,9 @@ class TestSwitcher(unittest.TestCase):
         Owner.gate.plugin("GatePlugin").configure.blocked = True
         owner = Owner()
         with self.assertRaises(RuntimeError):
-            Owner.gate("do_stable")(owner, 1)
+            Owner.gate["do_stable"](owner, 1)
         Owner.gate.plugin("GatePlugin").configure["do_stable"].enabled = False
-        self.assertEqual(Owner.gate("do_stable")(owner, 2), "stable:2")
+        self.assertEqual(Owner.gate["do_stable"](owner, 2), "stable:2")
 
     def test_add_child_discovers_switchers_on_object(self):
         root = Switcher("root")

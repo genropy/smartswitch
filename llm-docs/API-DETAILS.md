@@ -5,12 +5,15 @@
 ### Constructor
 
 ```python
+@extract_kwargs(get=True)
 Switcher(
-    name: str = "default",
+    name: str | None = None,
     description: str | None = None,
     prefix: str | None = None,
     parent: Switcher | None = None,
-    plugins: list[BasePlugin] | None = None
+    inherit_plugins: bool | None = None,
+    get_kwargs: dict | None = None,  # Auto-extracted from get_* parameters
+    **kwargs  # get_default_handler, get_use_smartasync, etc.
 )
 ```
 
@@ -19,16 +22,31 @@ Switcher(
 - `description`: Optional human-readable description
 - `prefix`: If set, auto-derive handler names by removing prefix from function names
 - `parent`: Parent Switcher for hierarchical APIs
-- `plugins`: List of plugin instances to apply to all handlers (v0.5.0+)
+- `inherit_plugins`: If True, inherit plugins from parent (default: True if parent exists)
+- `get_default_handler`: Default handler when `get()` doesn't find a name (v0.10.0+)
+- `get_use_smartasync`: Wrap all handlers with smartasync by default (v0.10.0+)
 
 **Example:**
 ```python
 from smartswitch import Switcher
 
+# Basic usage
 sw = Switcher(name="api", prefix="handle_")
+
+# With SmartAsync and default handler (v0.10.0+)
+def fallback_handler(*args, **kwargs):
+    return {"error": "Handler not found"}
+
+sw = Switcher(
+    name="api",
+    get_default_handler=fallback_handler,
+    get_use_smartasync=True  # All handlers work sync/async
+)
 ```
 
 ### Decorator Methods
+
+**Note (v0.10.0+):** `__call__` is now decorator-only. For handler retrieval, use `get()` or `__getitem__`.
 
 #### `@sw` - Register Handler by Function Name
 
@@ -48,8 +66,8 @@ sw = Switcher()
 def save_data(data):
     return f"Saved: {data}"
 
-# Call by name
-sw('save_data')(data)
+# Retrieve and call
+sw['save_data'](data)
 ```
 
 #### `@sw('name')` - Register with Custom Name
@@ -60,7 +78,7 @@ def handler(args):
     pass
 ```
 
-Registers with specified alias. Also works for lookup if name exists.
+Registers with specified alias.
 
 **Example:**
 ```python
@@ -68,32 +86,58 @@ Registers with specified alias. Also works for lookup if name exists.
 def handler(data):
     return f"Processed: {data}"
 
-sw('process')(data)
+# Retrieve by alias
+sw['process'](data)
 ```
 
-### Call Methods
+**Error on invalid usage:**
+```python
+# ❌ This now raises TypeError
+try:
+    handler = sw('name')  # No longer supported
+except TypeError as e:
+    print(e)  # "Switcher() supports only decorator usage..."
 
-#### Get Handler by Name
+# ✅ Use these instead
+handler = sw['name']           # Dict-like access
+handler = sw.get('name')       # With options
+```
+
+### Handler Retrieval Methods
+
+#### `get()` - Get Handler with Options (v0.10.0+)
 
 ```python
-handler = sw('handler_name')
-result = handler(args)
+handler = sw.get(name: str, **options)
 ```
 
-Returns callable handler. Supports dot notation for hierarchical access: `sw('child.handler')`
+Returns callable handler with optional configuration. Supports dotted paths like `"child.method"`.
+
+**Parameters:**
+- `name`: Handler name or dotted path (e.g., "child.method")
+- `default_handler`: Fallback handler if name not found (overrides init default)
+- `use_smartasync`: Wrap with smartasync for bidirectional sync/async (overrides init default)
 
 **Example:**
 ```python
-sw = Switcher()
+sw = Switcher(get_use_smartasync=True)
 
 @sw
 def process(data):
     return f"Processed: {data}"
 
-# Get handler
-handler = sw('process')
-# Call handler
-result = handler("test")  # → "Processed: test"
+# Get with default options
+handler = sw.get('process')
+result = handler("test")  # Works in sync or async context
+
+# Override options
+handler = sw.get('process', use_smartasync=False)
+
+# With fallback
+def fallback():
+    return "not found"
+handler = sw.get('nonexistent', default_handler=fallback)
+result = handler()  # → "not found"
 ```
 
 **Hierarchical access:**
@@ -105,8 +149,41 @@ users = root.add(Switcher(name="users"))
 def list():
     return ["alice", "bob"]
 
-# Access via dot notation
-root('users.list')()  # → ["alice", "bob"]
+# Access via dotted path
+handler = root.get('users.list')
+result = handler()  # → ["alice", "bob"]
+```
+
+#### `__getitem__` - Dict-Like Access (v0.10.0+)
+
+```python
+handler = sw['handler_name']
+result = handler(args)
+```
+
+Shorthand for `sw.get(name)` using defaults from init. Supports dotted paths.
+
+**Example:**
+```python
+sw = Switcher(get_use_smartasync=True)
+
+@sw
+def process(data):
+    return f"Processed: {data}"
+
+# Dict-like access uses init defaults
+handler = sw['process']
+result = handler("test")  # → "Processed: test"
+
+# Hierarchical
+root = Switcher(name="api")
+users = root.add(Switcher(name="users"))
+
+@users
+def list():
+    return ["alice", "bob"]
+
+root['users.list']()  # → ["alice", "bob"]
 ```
 
 ### Hierarchy Management
@@ -125,9 +202,9 @@ api = Switcher(name="api")
 users = api.add(Switcher(name="users"))
 products = api.add(Switcher(name="products"))
 
-# Access via parent
-api('users')  # → users Switcher
-api('products')  # → products Switcher
+# Access child handlers via parent with dotted paths
+api['users.list']()
+api['products.search']()
 ```
 
 #### `.remove_child(switcher)`
@@ -213,7 +290,7 @@ class Service:
         self.name = name
 
 svc = Service("MyService")
-svc.ops('process')(data)  # 'self' bound automatically
+svc.ops['process'](data)  # 'self' bound automatically
 ```
 
 **Methods:** Same as Switcher, with automatic `self` binding.
@@ -258,7 +335,7 @@ sw.myplugin.configure.timeout = 60
 
 ### Methods to Override
 
-#### `on_decorate(switch, func, entry)`
+#### `on_decore(switch, func, entry)`
 
 Called when a handler is decorated, **before** wrapping. Use for initialization, validation, or storing metadata.
 
@@ -270,7 +347,7 @@ Called when a handler is decorated, **before** wrapping. Use for initialization,
 **Example:**
 ```python
 class MetadataPlugin(BasePlugin):
-    def on_decorate(self, switch, func, entry):
+    def on_decore(self, switch, func, entry):
         # Store registration time in entry metadata
         if not hasattr(entry, '_plugin_meta'):
             entry._plugin_meta = {}
@@ -325,7 +402,7 @@ class TimingConfig(BaseModel):
 class TimingPlugin(BasePlugin):
     config_model = TimingConfig
 
-    def on_decorate(self, switch, func, entry):
+    def on_decore(self, switch, func, entry):
         # Store registration time in entry metadata
         if not hasattr(entry, '_timing_meta'):
             entry._timing_meta = {'registered_at': time.time()}
@@ -363,11 +440,11 @@ def slow_operation():
     time.sleep(0.1)
     return "done"
 
-sw('slow_operation')()  # Prints timing
+sw['slow_operation']()  # Prints timing
 
 # Runtime configuration changes
 sw.timing.configure.verbose = False
-sw('slow_operation')()  # Different format
+sw['slow_operation']()  # Different format
 ```
 
 ## Built-in Plugins
@@ -387,7 +464,7 @@ sw = Switcher().plug('logging', flags='print,enabled,after,time')
 def process(data):
     return data * 2
 
-sw('process')(42)
+sw['process'](42)
 # Output: ← process() → 84 (0.0001s)
 ```
 
@@ -436,10 +513,10 @@ def create_user(name: str, age: int, email: str):
     return {"name": name, "age": age, "email": email}
 
 # Valid
-sw('create_user')("Alice", 30, "alice@example.com")
+sw['create_user']("Alice", 30, "alice@example.com")
 
 # Invalid - raises ValidationError
-sw('create_user')("Alice", "thirty", "invalid-email")
+sw['create_user']("Alice", "thirty", "invalid-email")
 ```
 
 **Behavior:**
@@ -464,7 +541,7 @@ class API:
         self.name = name
 
 api = API("DB")
-api.handlers('save')("data")  # 'self' automatically bound
+api.handlers['save']("data")  # 'self' automatically bound
 ```
 
 **How it works:**
@@ -475,9 +552,9 @@ api.handlers('save')("data")  # 'self' automatically bound
 ## Thread Safety
 
 ### Safe Operations (Read-Only)
-- Handler dispatch: `sw('name')(args)` ✅
+- Handler dispatch: `sw['name'](args)` ✅
 - Introspection: `sw.entries()`, `sw.children` ✅
-- Handler lookup: `sw('name')` ✅
+- Handler lookup: `sw.get('name')`, `sw['name']` ✅
 
 ### Unsafe Operations (Require External Locking)
 - Decorator registration: `@sw` ⚠️ (should be at module level)
@@ -520,8 +597,8 @@ class API:
         return {"id": 123, "name": name}
 
 api = API()
-api.router('get_users')()
-api.router('create_user')("charlie")
+api.router['get_users']()
+api.router['create_user']("charlie")
 ```
 
 ### Command Pattern
@@ -536,8 +613,8 @@ def cmd_start():
 def cmd_stop():
     return "Stopped"
 
-commands('start')()
-commands('stop')()
+commands['start']()
+commands['stop']()
 ```
 
 ### Plugin System with Chaining
@@ -590,20 +667,25 @@ def users():
 def users():
     return ["alice", "bob", "charlie"]
 
-api('v1.users')()  # → ["alice"]
-api('v2.users')()  # → ["alice", "bob", "charlie"]
+api['v1.users']()  # → ["alice"]
+api['v2.users']()  # → ["alice", "bob", "charlie"]
 ```
 
 ## Error Handling
 
-### ValueError - Handler Not Found by Name
+### NotImplementedError - Handler Not Found by Name (v0.10.0+)
 
-Raised when handler name not found:
+Raised when handler name not found and no default_handler provided:
 ```python
 try:
-    sw('nonexistent')
-except ValueError as e:
+    sw.get('nonexistent')
+except NotImplementedError as e:
     print(f"Handler not found: {e}")
+
+# Or provide default
+def fallback():
+    return "not found"
+handler = sw.get('nonexistent', default_handler=fallback)
 ```
 
 ### TypeError - Invalid Decorator Usage
@@ -622,17 +704,23 @@ except TypeError as e:
 
 1. **List all handlers**: `print(sw.entries())`
 2. **Check hierarchy**: `print([c.name for c in sw.children])`
-3. **Inspect handler**: `print(sw('name').__wrapped__)`
+3. **Inspect handler**: `print(sw['name'].__wrapped__)`
 4. **Check parent**: `print(sw.parent.name if sw.parent else 'No parent')`
+5. **Check get() defaults**: `print(sw.get_kwargs)`
 
 ## Version History
 
-- **0.10.0**: Pydantic-based plugin configuration system with runtime flexibility
+- **0.10.0**: SmartAsync integration and new retrieval API
+  - **SmartAsync integration**: Bidirectional sync/async handler wrapping
+  - **New API**: `get()` method with options, `__getitem__` dict-like access
+  - **SmartSeeds integration**: `extract_kwargs` decorator, `SmartOptions` for option merging
+  - **Flexible defaults**: `get_default_handler`, `get_use_smartasync` at init
+  - **Breaking change**: `__call__` now decorator-only (use `get()` or `[]` for retrieval)
+  - Pydantic-based plugin configuration system with runtime flexibility
   - `flags` parameter for boolean settings
   - Runtime configuration via `.configure` property
   - Per-method configuration overrides
-  - LoggingPlugin with full Pydantic configuration
-- **0.6.0**: Plugin lifecycle hooks (`on_decorate()`), metadata sharing
+- **0.6.0**: Plugin lifecycle hooks (`on_decore()`), metadata sharing
 - **0.5.0**: Plugin system with `BasePlugin`, global registry, `PydanticPlugin`
 - **0.4.0**: Refactored core, improved type hints
 - **0.3.1**: Dot notation for hierarchical access

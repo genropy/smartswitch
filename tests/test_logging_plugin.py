@@ -100,7 +100,7 @@ class TestPrintOutput:
         def add(a, b):
             return a + b
 
-        result = sw("add")(2, 3)
+        result = sw["add"](2, 3)
         assert result == 5
 
         captured = capsys.readouterr()
@@ -116,7 +116,7 @@ class TestPrintOutput:
         def process(data):
             return f"processed-{data}"
 
-        sw("process")("test")
+        sw["process"]("test")
 
         captured = capsys.readouterr()
         assert "→ process('test')" in captured.out
@@ -130,7 +130,7 @@ class TestPrintOutput:
         def process(data):
             return f"processed-{data}"
 
-        sw("process")("test")
+        sw["process"]("test")
 
         captured = capsys.readouterr()
         assert "→ process(" not in captured.out  # Before disabled
@@ -145,7 +145,7 @@ class TestPrintOutput:
             time.sleep(0.01)
             return "done"
 
-        sw("slow")()
+        sw["slow"]()
 
         captured = capsys.readouterr()
         assert "← slow() → done" in captured.out
@@ -159,7 +159,7 @@ class TestPrintOutput:
         def create_user(name, age, email=""):
             return {"name": name, "age": age}
 
-        sw("create_user")("Alice", age=30, email="alice@test.com")
+        sw["create_user"]("Alice", age=30, email="alice@test.com")
 
         captured = capsys.readouterr()
         assert "→ create_user('Alice', age=30, email='alice@test.com')" in captured.out
@@ -178,7 +178,7 @@ class TestLogOutput:
         def multiply(a, b):
             return a * b
 
-        result = sw("multiply")(3, 4)
+        result = sw["multiply"](3, 4)
         assert result == 12
 
         assert len(caplog.records) == 2
@@ -198,7 +198,7 @@ class TestLogOutput:
         def divide(a, b):
             return a / b
 
-        sw("divide")(10, 2)
+        sw["divide"](10, 2)
 
         captured = capsys.readouterr()
         # Should use print() since logger has no handlers
@@ -218,13 +218,13 @@ class TestLogOutput:
             return "Success"
 
         # Normal call -> info level
-        sw("may_fail")(False)
+        sw["may_fail"](False)
         assert any(r.levelname == "INFO" for r in caplog.records)
 
         # Failing call -> error level
         caplog.clear()
         with pytest.raises(ValueError):
-            sw("may_fail")(True)
+            sw["may_fail"](True)
         assert any(r.levelname == "ERROR" for r in caplog.records)
 
 
@@ -240,7 +240,7 @@ class TestExceptionHandling:
             raise ValueError("Something broke")
 
         with pytest.raises(ValueError, match="Something broke"):
-            sw("fail")()
+            sw["fail"]()
 
         captured = capsys.readouterr()
         assert "✗ fail() raised ValueError: Something broke" in captured.out
@@ -255,7 +255,7 @@ class TestExceptionHandling:
             raise RuntimeError("Failed")
 
         with pytest.raises(RuntimeError):
-            sw("slow_fail")()
+            sw["slow_fail"]()
 
         captured = capsys.readouterr()
         assert "✗ slow_fail() raised RuntimeError" in captured.out
@@ -270,7 +270,7 @@ class TestExceptionHandling:
             raise ValueError("Error")
 
         with pytest.raises(ValueError):
-            sw("fail")()
+            sw["fail"]()
 
         captured = capsys.readouterr()
         assert "→ fail()" in captured.out
@@ -294,7 +294,7 @@ class TestMethodBinding:
 
         calc = Calculator("MyCalc")
         # Call via switcher, not as method
-        result = sw("add")(calc, 10, 20)
+        result = sw["add"](calc, 10, 20)
         assert result == "MyCalc: 30"
 
         captured = capsys.readouterr()
@@ -316,8 +316,8 @@ class TestComplexScenarios:
         def handler_b(x):
             return x + 10
 
-        sw("handler_a")(5)
-        sw("handler_b")(5)
+        sw["handler_a"](5)
+        sw["handler_b"](5)
 
         captured = capsys.readouterr()
         assert "→ handler_a(5)" in captured.out
@@ -336,7 +336,7 @@ class TestComplexScenarios:
             return inner(x) + 10
 
         # Direct reference to avoid lookup overhead in test
-        inner_func = sw("inner")
+        inner_func = sw["inner"]
         inner_func(5)
 
         captured = capsys.readouterr()
@@ -350,7 +350,7 @@ class TestComplexScenarios:
         def process():
             return "done"
 
-        sw("process")()
+        sw["process"]()
 
         captured = capsys.readouterr()
         # Should show both before and after with timing
@@ -370,7 +370,7 @@ class TestEdgeCases:
         def no_args():
             return 42
 
-        sw("no_args")()
+        sw["no_args"]()
 
         captured = capsys.readouterr()
         assert "→ no_args()" in captured.out
@@ -384,7 +384,7 @@ class TestEdgeCases:
         def get_data():
             return {"users": ["alice", "bob"], "count": 2}
 
-        sw("get_data")()
+        sw["get_data"]()
 
         captured = capsys.readouterr()
         assert "← get_data() →" in captured.out
@@ -398,7 +398,7 @@ class TestEdgeCases:
         def returns_none():
             pass  # Implicitly returns None
 
-        sw("returns_none")()
+        sw["returns_none"]()
 
         captured = capsys.readouterr()
         assert "← returns_none() → None" in captured.out
@@ -415,7 +415,7 @@ class TestGranularConfiguration:
         def calculate(x):
             return x * 2
 
-        result = sw("calculate")(5)
+        result = sw["calculate"](5)
         assert result == 10
 
         # Should have no output (plugin disabled by default)
@@ -445,20 +445,20 @@ class TestGranularConfiguration:
             return x - 1
 
         # Calculate should log (after + time)
-        sw("calculate")(5)
+        sw["calculate"](5)
         captured = capsys.readouterr()
         assert "← calculate() → 10" in captured.out
         assert "s)" in captured.out  # Has timing
         assert "→ calculate" not in captured.out  # No before
 
         # Process should log (before only)
-        sw("process")(5)
+        sw["process"](5)
         captured = capsys.readouterr()
         assert "→ process(5)" in captured.out
         assert "← process()" not in captured.out  # No after
 
         # Other should not log (global disabled)
-        sw("other")(5)
+        sw["other"](5)
         captured = capsys.readouterr()
         assert captured.out == ""
 
@@ -486,17 +486,17 @@ class TestGranularConfiguration:
             return x - 1
 
         # public_api should log
-        sw("public_api")(5)
+        sw["public_api"](5)
         captured = capsys.readouterr()
         assert "← public_api() → 10" in captured.out
 
         # internal should not log
-        sw("internal")(5)
+        sw["internal"](5)
         captured = capsys.readouterr()
         assert captured.out == ""
 
         # helper should not log
-        sw("helper")(5)
+        sw["helper"](5)
         captured = capsys.readouterr()
         assert captured.out == ""
 
@@ -527,14 +527,14 @@ class TestGranularConfiguration:
             return x
 
         # alfa, beta, gamma should not log
-        sw("alfa")(1)
-        sw("beta")(2)
-        sw("gamma")(3)
+        sw["alfa"](1)
+        sw["beta"](2)
+        sw["gamma"](3)
         captured = capsys.readouterr()
         assert captured.out == ""
 
         # delta should log
-        sw("delta")(4)
+        sw["delta"](4)
         captured = capsys.readouterr()
         assert "← delta() → 4" in captured.out
 
@@ -557,13 +557,13 @@ class TestGranularConfiguration:
             return x + 10
 
         # normal should use global config (before only)
-        sw("normal")(5)
+        sw["normal"](5)
         captured = capsys.readouterr()
         assert "→ normal(5)" in captured.out
         assert "← normal()" not in captured.out
 
         # special should use method-specific config (after + time)
-        sw("special")(5)
+        sw["special"](5)
         captured = capsys.readouterr()
         assert "← special() → 15" in captured.out
         assert "s)" in captured.out
@@ -588,12 +588,12 @@ class TestGranularConfiguration:
             return x
 
         # skip_me should not log
-        sw("skip_me")(1)
+        sw["skip_me"](1)
         captured = capsys.readouterr()
         assert captured.out == ""
 
         # process_me should log
-        sw("process_me")(2)
+        sw["process_me"](2)
         captured = capsys.readouterr()
         assert "← process_me() → 2" in captured.out
 
@@ -620,7 +620,7 @@ class TestLoggingPluginInternal:
             return x * 2
 
         # Plugin disabled - no logging
-        result = sw("handler")(5)
+        result = sw["handler"](5)
 
         assert result == 10
         captured = capsys.readouterr()
@@ -636,5 +636,5 @@ class TestLoggingPluginInternal:
             return "test"
 
         # Function should work normally (on_decorate does nothing)
-        result = sw("handler")()
+        result = sw["handler"]()
         assert result == "test"

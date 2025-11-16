@@ -107,12 +107,55 @@ class PydanticPlugin(BasePlugin):
         # Create validation model
         validation_model = create_model(f"{func.__name__}_Model", **fields)  # type: ignore[call-overload]
 
-        # Store model and metadata in entry for runtime use
+        # Pre-extract ALL information needed for CLI/API/Help (one-time extraction)
+        # This avoids repeated inspect.signature() calls throughout the application
+        param_names = []
+        param_info = []
+
+        for param_name, param in sig.parameters.items():
+            if param_name == "self":
+                continue
+
+            param_names.append(param_name)
+
+            # Extract type info
+            hint = hints.get(param_name)
+            if hint is not None:
+                # Try to get a clean type name
+                try:
+                    from typing import get_origin
+
+                    origin = get_origin(hint)
+                    if origin is not None:
+                        param_type = str(hint)
+                    else:
+                        param_type = hint.__name__ if hasattr(hint, "__name__") else str(hint)
+                except Exception:
+                    param_type = str(hint)
+            else:
+                param_type = "Any"
+
+            # Check if required
+            required = param.default is inspect.Parameter.empty
+            default = None if required else param.default
+
+            param_info.append(
+                {
+                    "name": param_name,
+                    "type": param_type,
+                    "required": required,
+                    "default": default,
+                }
+            )
+
+        # Store EVERYTHING in metadata for runtime use (one-time extraction)
         entry.metadata["pydantic"] = {
             "enabled": True,
-            "model": validation_model,
-            "hints": hints,
-            "signature": sig,
+            "model": validation_model,  # For fast validation
+            "param_names": param_names,  # For CLI arg mapping
+            "param_info": param_info,  # For help/API documentation
+            "hints": hints,  # Original type hints
+            "signature": sig,  # Complete signature object
         }
 
     def wrap_handler(

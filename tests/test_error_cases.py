@@ -223,7 +223,7 @@ class TestSwitcherCallErrors(unittest.TestCase):
         with self.assertRaises(TypeError) as cm:
             sw("handler", "extra")  # Extra positional arg
 
-        self.assertIn("only supports a single string argument", str(cm.exception))
+        self.assertIn("supports only decorator usage", str(cm.exception))
 
     def test_call_with_string_and_kwargs(self):
         """Test that calling with string + kwargs raises TypeError."""
@@ -232,7 +232,7 @@ class TestSwitcherCallErrors(unittest.TestCase):
         with self.assertRaises(TypeError) as cm:
             sw("handler", key="value")
 
-        self.assertIn("only supports a single string argument", str(cm.exception))
+        self.assertIn("supports only decorator usage", str(cm.exception))
 
     def test_call_with_non_callable_non_string(self):
         """Test that calling with non-callable, non-string raises TypeError."""
@@ -241,21 +241,21 @@ class TestSwitcherCallErrors(unittest.TestCase):
         with self.assertRaises(TypeError) as cm:
             sw(123)  # Not callable, not string
 
-        self.assertIn("no longer supports implicit dispatch", str(cm.exception))
+        self.assertIn("supports only decorator usage", str(cm.exception))
 
 
 class TestSwitcherDispatchErrors(unittest.TestCase):
     """Test dispatch error handling."""
 
     def test_dispatch_unknown_method(self):
-        """Test that dispatching unknown method raises KeyError."""
+        """Test that getting unknown handler raises NotImplementedError."""
         sw = Switcher()
 
-        # Try to call non-existent handler
-        with self.assertRaises(KeyError) as cm:
-            sw("nonexistent_handler")()
+        # Try to get non-existent handler
+        with self.assertRaises(NotImplementedError) as cm:
+            sw.get("nonexistent_handler")
 
-        self.assertIn("Unknown method", str(cm.exception))
+        self.assertIn("not found", str(cm.exception))
         self.assertIn("nonexistent_handler", str(cm.exception))
 
 

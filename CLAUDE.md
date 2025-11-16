@@ -6,17 +6,23 @@
 
 ### Current Status
 - **Development Status**: Beta (`Development Status :: 4 - Beta`)
-- **Version**: 0.6.0
+- **Version**: 0.10.0
 - **Has Implementation**: Yes (complete with tests and documentation)
-- **Coverage**: 82% (197 comprehensive tests)
-- **Plugin System**: v0.6.0 with `on_decorate()` hook and metadata sharing
+- **Coverage**: 91% (156 comprehensive tests)
+- **Plugin System**: v0.10.0 with `on_decorate()` hook and metadata sharing
+- **SmartAsync Integration**: v0.10.0 with bidirectional sync/async support
 
 ### Project Overview
 
-SmartSwitch provides a clean, Pythonic API for dispatching functions based on:
-- Type rules (`typerule`) - Type checking for arguments
-- Value rules (`valrule`) - Runtime condition checks
-- Named registry - Lookup handlers by function name
+SmartSwitch provides a clean, Pythonic API for:
+- **Handler Registry**: Named function lookup and dispatch
+- **Plugin System**: Extensible middleware for validation, logging, etc.
+- **SmartAsync Integration**: Bidirectional sync/async handler wrapping
+- **Flexible Access**: Decorator, get() method, and dict-like access
+
+**Key Dependencies**:
+- `smartasync>=0.5.0` - Bidirectional sync/async wrapper
+- `smartseeds>=0.1.0` - Smart options and kwargs extraction
 
 The library is optimized for real-world use cases where dispatch overhead is negligible compared to actual work (API calls, database queries, business logic).
 
@@ -89,10 +95,11 @@ smartswitch/
 
 ### Core Principles
 
-1. **Keep it simple**: The library has no external dependencies (core uses only stdlib)
+1. **Keep it simple**: Minimal dependencies (only smartasync and smartseeds from genro-libs ecosystem)
 2. **Performance matters**: Current optimizations include signature caching, pre-compiled type checks, manual kwargs building
-3. **Test thoroughly**: Maintain 90%+ coverage (current: 95%)
+3. **Test thoroughly**: Maintain 90%+ coverage (current: 91%)
 4. **Document clearly**: Every feature should have examples in docs
+5. **Bidirectional async**: Handlers work in both sync and async contexts via SmartAsync
 
 ### Testing
 

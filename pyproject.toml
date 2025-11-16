@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartswitch"
-version = "0.10.0"
+version = "0.11.0"
 description = "Named function registry and plugin system for Python"
 authors = [
     {name = "Giovanni Porcari", email = "softwell@softwell.it"},
@@ -24,6 +24,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 keywords = ["dispatch", "rule-engine", "dynamic", "type-system", "functional", "pattern-matching"]
+dependencies = [
+    "smartasync>=0.5.0",
+    "smartseeds>=0.1.0",
+]
 
 [project.optional-dependencies]
 dev = [

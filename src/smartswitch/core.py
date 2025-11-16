@@ -24,6 +24,9 @@ import contextvars
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type
 
+from smartasync import smartasync
+from smartseeds import SmartOptions, extract_kwargs
+
 # ============================================================
 # THREAD-LOCAL CONTEXT
 # ============================================================
@@ -211,7 +214,7 @@ class BasePlugin:
 
     Plugins have two main hooks:
 
-    - on_decorate(switch, func, entry):
+    - on_decore(switch, func, entry):
         Called once at decoration time. It can mutate entry.metadata.
     - wrap_handler(switch, entry, call_next):
         Called at wrapper-chain construction time.
@@ -470,11 +473,17 @@ class _SwitchCall:
 
 class Switcher:
     """
-    Switcher is a decorator + dispatcher + plugin container.
+    Switcher is a decorator + handler registry + plugin container.
 
     Usage patterns:
 
-        switch = Switcher("main", prefix="do_")
+        # Create switcher with optional get() defaults
+        switch = Switcher(
+            "main",
+            prefix="do_",
+            get_default_handler=fallback_fn,
+            get_use_smartasync=True
+        )
 
         class My:
             main = switch
@@ -487,11 +496,12 @@ class Switcher:
             def do_special(self, x):
                 ...  # registered name: "special" (alias wins)
 
-        # Named dispatch:
-        main("run")(instance, 10)
-        main("special")(instance, 20)
+        # Handler retrieval and dispatch:
+        handler = main.get('run')              # Get with defaults
+        handler = main['run']                  # Dict-like access
+        handler = main.get('run', use_smartasync=False)  # Override defaults
 
-        result = main("run")(instance, 10)
+        result = main['run'](instance, 10)
     """
 
     _global_plugin_registry: Dict[str, Type[BasePlugin]] = {}
@@ -508,6 +518,7 @@ class Switcher:
         """Return the map of registered plugin names to their classes."""
         return dict(cls._global_plugin_registry)
 
+    @extract_kwargs(get=True)
     def __init__(
         self,
         name: Optional[str] = None,
@@ -515,6 +526,7 @@ class Switcher:
         prefix: Optional[str] = None,
         parent: Optional["Switcher"] = None,
         inherit_plugins: Optional[bool] = None,
+        get_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.name = name
         self.prefix: str
@@ -523,6 +535,9 @@ class Switcher:
         else:
             self.prefix = prefix
         self.parent: Optional["Switcher"] = None
+
+        # Store get() method defaults
+        self.get_kwargs = get_kwargs or {}
 
         self._local_plugins: List[BasePlugin] = []
         self._local_plugin_specs: List[_PluginSpec] = []
@@ -536,6 +551,67 @@ class Switcher:
 
         if parent is not None:
             parent.add_child(self)
+
+    # --------------------------------------------------------
+    # Handler Retrieval
+    # --------------------------------------------------------
+    def get(self, name: str, **options: Any) -> Callable:
+        """
+        Get handler by name with optional configuration.
+
+        Supports dotted paths like "child.method" to access child switchers.
+
+        Args:
+            name: Handler name to retrieve (supports dotted paths)
+            **options: Runtime options that override defaults:
+                - default_handler: Fallback callable when method not found
+                - use_smartasync: If True, wrap handler with smartasync
+
+        Returns:
+            The handler function (optionally wrapped with smartasync)
+
+        Raises:
+            NotImplementedError: If handler not found and no default_handler provided
+        """
+        opts = SmartOptions(incoming=options, defaults=self.get_kwargs)
+
+        # Resolve dotted path if present (e.g., "child.method")
+        node, method_name = self._resolve_path(name)
+
+        # Look up the method entry
+        entry = node._methods.get(method_name)
+
+        if entry is None:
+            # Handler not found - use default if provided
+            default = getattr(opts, "default_handler", None)
+            if default is not None:
+                handler = default
+            else:
+                raise NotImplementedError(f"Method '{name}' not found")
+        else:
+            # Get the wrapped handler (with all plugins applied)
+            handler = entry._wrapped  # type: ignore[attr-defined]
+
+        # Wrap with smartasync if requested
+        if getattr(opts, "use_smartasync", False):
+            handler = smartasync(handler)
+
+        return handler
+
+    def __getitem__(self, name: str) -> Callable:
+        """
+        Dict-like access to handlers using defaults.
+
+        Example:
+            handler = sw['my_method']
+
+        Args:
+            name: Handler name to retrieve
+
+        Returns:
+            The handler function (using default get_kwargs configuration)
+        """
+        return self.get(name)
 
     # --------------------------------------------------------
     # Children
@@ -823,42 +899,42 @@ class Switcher:
         return wrapped
 
     # --------------------------------------------------------
-    # __call__ - decorator or dispatch
+    # __call__ - decorator only
     # --------------------------------------------------------
     def __call__(self, *args, **kwargs):
         """
-        Overloaded behavior:
+        Decorator usage only:
 
         1) As a plain decorator: @switch
            -> switch(func)
 
         2) As a decorator factory with alias:
            @switch("alias")
+           -> returns decorator that registers func with given alias
 
-        3) As a named/dotted-path dispatch handle:
-           switch("name")(*args)
-           switch("a.b.name")(*args)
+        For handler retrieval, use:
+        - sw.get('name', **options) - with runtime options
+        - sw['name'] - using default options
         """
-        # CASE 1: @switch
+        # CASE 1: Direct decorator - @switch
         if len(args) == 1 and callable(args[0]) and not kwargs:
             func = args[0]
             return self._decorate(func)
 
-        # CASE 2/3: first arg is string -> alias OR named dispatch
-        if len(args) >= 1 and isinstance(args[0], str):
-            selector = args[0]
-            if len(args) == 1 and not kwargs:
-                # Named/dotted path dispatch handle: switch("name")
-                return _SwitchCall(self, selector)
+        # CASE 2: Decorator factory with alias - @switch("alias")
+        if len(args) == 1 and isinstance(args[0], str) and not kwargs:
+            alias = args[0]
 
-            raise TypeError(
-                "Switcher selector usage only supports a single string argument. "
-                "Call the returned handle to execute handlers."
-            )
+            def decorator(func: Callable) -> Callable:
+                return self._decorate(func, alias=alias)
+
+            return decorator
 
         raise TypeError(
-            "Switcher no longer supports implicit dispatch. "
-            "Call switch('name') to get a callable handler."
+            "Switcher() supports only decorator usage:\n"
+            "  - Direct: @switch\n"
+            "  - With alias: @switch('alias')\n"
+            "For handler retrieval, use sw.get('name') or sw['name']"
         )
 
     # --------------------------------------------------------
